@@ -175,6 +175,7 @@ fn main() -> ! {
                         Ok(packet_size) => info!("Sent packet with size: {}", packet_size),
                         Err(_) => info!("Error"),
                     }
+                    lora.set_mode(sx127x_lora::RadioMode::RxContinuous);
                 }
             }
         }

@@ -21,6 +21,7 @@ use bsp::hal::{
     spi::Spi,
     watchdog::Watchdog,
 };
+use sx127x_lora::RadioMode;
 
 use crate::input::{Button, Button2};
 
@@ -135,6 +136,7 @@ fn main() -> ! {
                             Ok(packet_size) => info!("Sent packet with size: {}", packet_size),
                             Err(_) => info!("Error"),
                         }
+                        lora.set_mode(RadioMode::RxContinuous);
                         info!("got {},{},{}:{}", size, rssi.unwrap(), snr.unwrap(), result);
                     }
                     Err(_) => info!("fail packet"),
@@ -149,6 +151,7 @@ fn main() -> ! {
                         Ok(packet_size) => info!("Sent packet with size: {}", packet_size),
                         Err(_) => info!("Error"),
                     }
+                    lora.set_mode(RadioMode::RxContinuous);
                 }
             }
         }
