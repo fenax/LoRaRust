@@ -111,7 +111,9 @@ fn main() -> ! {
             match e {
                 Error::FailedTx => {}
                 Error::FailedRx => {}
-                Error::Hardware => blink(&mut led, "Hard Fail"),
+                Error::HardwarePico => blink(&mut led, "Hard Fail"),
+                Error::HardwareLora => blink(&mut led, "Check Radio"),
+                Error::HardwareDisplay => blink(&mut led, "check display"),
                 Error::Busy => {}
             }
         }
@@ -183,28 +185,30 @@ fn main() -> ! {
 enum Error {
     FailedTx,
     FailedRx,
-    Hardware,
+    HardwarePico,
+    HardwareLora,
+    HardwareDisplay,
     Busy,
 }
 
 fn lora_rx<SPI, CS, RESET>(error: sx127x_lora::Error<SPI, CS, RESET>) -> Error {
     match error {
-        sx127x_lora::Error::Uninformative => Error::Hardware,
-        sx127x_lora::Error::VersionMismatch(_) => Error::Hardware,
-        sx127x_lora::Error::CS(_) => Error::Hardware,
-        sx127x_lora::Error::Reset(_) => Error::Hardware,
-        sx127x_lora::Error::SPI(_) => Error::Hardware,
+        sx127x_lora::Error::Uninformative => Error::HardwareLora,
+        sx127x_lora::Error::VersionMismatch(_) => Error::HardwareLora,
+        sx127x_lora::Error::CS(_) => Error::HardwarePico,
+        sx127x_lora::Error::Reset(_) => Error::HardwarePico,
+        sx127x_lora::Error::SPI(_) => Error::HardwarePico,
         sx127x_lora::Error::Transmitting => Error::Busy,
     }
 }
 
 fn lora_tx<SPI, CS, RESET>(error: sx127x_lora::Error<SPI, CS, RESET>) -> Error {
     match error {
-        sx127x_lora::Error::Uninformative => Error::Hardware,
-        sx127x_lora::Error::VersionMismatch(_) => Error::Hardware,
-        sx127x_lora::Error::CS(_) => Error::Hardware,
-        sx127x_lora::Error::Reset(_) => Error::Hardware,
-        sx127x_lora::Error::SPI(_) => Error::Hardware,
+        sx127x_lora::Error::Uninformative => Error::HardwareLora,
+        sx127x_lora::Error::VersionMismatch(_) => Error::HardwareLora,
+        sx127x_lora::Error::CS(_) => Error::HardwarePico,
+        sx127x_lora::Error::Reset(_) => Error::HardwarePico,
+        sx127x_lora::Error::SPI(_) => Error::HardwarePico,
         sx127x_lora::Error::Transmitting => Error::Busy,
     }
 }
