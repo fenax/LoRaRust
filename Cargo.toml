@@ -12,7 +12,7 @@ mipidsi = "0.3.0"
 display-interface-spi = "0.4.1"
 fugit = "0.3.6"
 numtoa = "0.2.4"
-
+nb = "*"
 defmt = "0.3"
 defmt-rtt = "0.3"
 panic-probe = { version = "0.3", features = ["print-defmt"] }

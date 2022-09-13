@@ -1,7 +1,8 @@
 #![no_std]
 #![no_main]
+mod blink;
 mod input;
-
+use blink::blink;
 use bsp::{
     entry,
     hal::gpio::{FunctionSpi, FunctionUsbAux},
@@ -72,7 +73,8 @@ fn main() -> ! {
         sio.gpio_bank0,
         &mut pac.RESETS,
     );
-
+    let mut led = pins.led.into_push_pull_output();
+    blink(&mut led, &"Hello!");
     let _mosi_display = pins.gpio19.into_mode::<FunctionSpi>();
     let _sck_display = pins.gpio18.into_mode::<FunctionSpi>();
     let cs_display = pins.gpio17.into_push_pull_output();
@@ -93,7 +95,7 @@ fn main() -> ! {
     display.clear(Rgb565::BLUE).unwrap();
     let style = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
 
-    let mut led_pin = pins.led.into_push_pull_output();
+    //let mut led_pin = pins.led.into_push_pull_output();
 
     let _miso = pins.gpio8.into_mode::<FunctionSpi>();
     let _mosi = pins.gpio11.into_mode::<FunctionSpi>();
