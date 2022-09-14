@@ -70,7 +70,7 @@ fn main() -> ! {
     );
 
     let mut led = pins.led.into_push_pull_output();
-    blink(&mut led, &"Hello!");
+    //blink(&mut led, &"Hello!");
 
     let _miso = pins.gpio8.into_mode::<FunctionSpi>();
     let _mosi = pins.gpio11.into_mode::<FunctionSpi>();
@@ -114,7 +114,7 @@ fn main() -> ! {
                 Error::HardwarePico => blink(&mut led, "Hard Fail"),
                 Error::HardwareLora => blink(&mut led, "Check Radio"),
                 Error::HardwareDisplay => blink(&mut led, "check display"),
-                Error::Busy => {}
+                Error::Busy => blink(&mut led, "Busy"),
             }
         }
         /*
@@ -264,12 +264,19 @@ where
             let result = lora.read_packet().map_err(lora_rx)?;
             copy(&result[..size], &mut buffer2, &mut cursor);
 
+            lora.set_mode(RadioMode::Tx).map_err(lora_tx)?;
+            lora.set_tx_power(17, 1).unwrap_or_else(|_| {
+                //Using PA_BOOST. See your board for correct pin.
+                //blink(&mut led, "power");
+                crate::panic!("Failed setting module power");
+            });
+
             let transmit = lora
                 .transmit_payload_busy(buffer2, cursor)
                 .map_err(lora_tx)?;
             info!("Sent packet with size: {}", transmit);
 
-            lora.set_mode(RadioMode::RxContinuous).map_err(lora_rx)?;
+            //lora.set_mode(RadioMode::RxContinuous).map_err(lora_rx)?;
             info!("got {},{},{}:{}", size, rssi, snr, result);
             Ok(())
         }
@@ -277,10 +284,9 @@ where
         //timeout
         {
             if button.just_pressed() {
+                lora.set_mode(RadioMode::Tx).map_err(lora_tx)?;
                 let transmit = lora.transmit_payload_busy(*message, len).map_err(lora_tx)?;
                 info!("Sent packet with size: {}", transmit);
-
-                lora.set_mode(RadioMode::RxContinuous).map_err(lora_rx)?;
             }
             Ok(())
         }

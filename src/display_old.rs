@@ -74,7 +74,7 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
     let mut led = pins.led.into_push_pull_output();
-    blink(&mut led, &"Hello!");
+    //blink(&mut led, &"Hello!");
     let _mosi_display = pins.gpio19.into_mode::<FunctionSpi>();
     let _sck_display = pins.gpio18.into_mode::<FunctionSpi>();
     let cs_display = pins.gpio17.into_push_pull_output();
@@ -177,7 +177,6 @@ fn main() -> ! {
                         Ok(packet_size) => info!("Sent packet with size: {}", packet_size),
                         Err(_) => info!("Error"),
                     }
-                    lora.set_mode(sx127x_lora::RadioMode::RxContinuous);
                 }
             }
         }
