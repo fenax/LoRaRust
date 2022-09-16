@@ -20,7 +20,7 @@ impl Morse {
     }
 }
 
-static ms: u32 = 125000;
+const ms: u32 = 125000;
 
 //light then dark
 //Dash   ---_    3 1

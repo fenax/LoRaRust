@@ -5,6 +5,7 @@ mod input;
 
 use blink::blink;
 use bsp::{entry, hal::gpio::FunctionSpi};
+use cortex_m::asm::delay;
 use defmt::export::panic;
 use defmt::*;
 use defmt_rtt as _;
@@ -37,6 +38,7 @@ use crate::input::Button2;
 //use hal::{Pin, Spidev};
 
 const FREQUENCY: i64 = 434;
+const ms: u32 = 125000;
 
 #[entry]
 fn main() -> ! {
@@ -70,7 +72,7 @@ fn main() -> ! {
     );
 
     let mut led = pins.led.into_push_pull_output();
-    blink(&mut led, &"Hello!");
+    //blink(&mut led, &"Hello!");
 
     let _miso = pins.gpio8.into_mode::<FunctionSpi>();
     let _mosi = pins.gpio11.into_mode::<FunctionSpi>();
@@ -269,7 +271,7 @@ where
                 .map_err(lora_tx)?;
             info!("Sent packet with size: {}", transmit);
 
-            lora.set_mode(RadioMode::RxContinuous).map_err(lora_rx)?;
+            //lora.set_mode(RadioMode::Stdby).map_err(lora_rx)?;
             info!("got {},{},{}:{}", size, rssi, snr, result);
             Ok(())
         }
@@ -277,10 +279,14 @@ where
         //timeout
         {
             if button.just_pressed() {
+                lora.clear_irq().map_err(lora_tx)?;
+                lora.set_mode(RadioMode::Stdby).map_err(lora_tx)?;
+
+                delay(1 * ms);
                 let transmit = lora.transmit_payload_busy(*message, len).map_err(lora_tx)?;
                 info!("Sent packet with size: {}", transmit);
 
-                lora.set_mode(RadioMode::RxContinuous).map_err(lora_rx)?;
+                lora.set_mode(RadioMode::Stdby).map_err(lora_rx)?;
             }
             Ok(())
         }
