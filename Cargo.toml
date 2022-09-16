@@ -6,7 +6,10 @@ version = "0.1.0"
 [dependencies]
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
-embedded-hal = { version = "0.2.5", features = ["unproven"] }
+#embedded-hal = { version = "0.2.7", features = ["unproven"] }
+#embedded-hal-compat ="0.7.0"
+embedded-hal-02 = { version = "0.2.7", package="embedded-hal", features = ["unproven"]  }
+embedded-hal = "1.0.0-alpha.7"
 embedded-graphics = "0.7.1"
 mipidsi = "0.3.0"
 display-interface-spi = "0.4.1"
@@ -16,10 +19,13 @@ nb = "*"
 defmt = "0.3"
 defmt-rtt = "0.3"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
+radio = "0.11.1"
 
 # We're using a Pico by default on this template
 rp-pico = "0.5"
-sx127x_lora ="0.3.1"
+#sx127x_lora ="0.3.1"
+radio-sx127x  = {  git = "https://github.com/rust-iot/rust-radio-sx127x", default-features = false }
+#radio-sx127x  = {  path = "../rust-radio-sx127x", default-features = false }
 # but you can use any BSP. Uncomment this to use the pro_micro_rp2040 BSP instead
 # sparkfun-pro-micro-rp2040 = "0.3"
 

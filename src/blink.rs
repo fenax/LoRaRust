@@ -1,5 +1,5 @@
 use cortex_m::asm::delay;
-use embedded_hal::digital::v2::OutputPin;
+use embedded_hal_02::digital::v2::OutputPin;
 
 #[derive(Clone, Copy)]
 pub enum Morse {
