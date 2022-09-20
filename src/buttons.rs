@@ -3,25 +3,28 @@
 mod blink;
 mod input;
 
+use core::borrow::Borrow;
+use core::convert::Infallible;
+
 use blink::blink;
 use bsp::hal::spi::Enabled;
 use bsp::{entry, hal::gpio::FunctionSpi};
 use defmt::export::panic;
 use defmt::*;
 use defmt_rtt as _;
-use embedded_hal::delay::blocking::DelayUs;
-use embedded_hal::digital::blocking::{InputPin, OutputPin};
+use embedded_hal_compat::eh0_2::blocking::delay::DelayUs;
+use embedded_hal_compat::eh0_2::digital::v2::{InputPin, OutputPin};
 //use embedded_hal::spi::blocking::SpiDevice;
 //{Transfer, Write};
-use embedded_hal::blocking::delay::DelayMs;
-use embedded_hal::blocking::spi::{Transactional, Transfer, Write};
+use embedded_hal_compat::eh1_0::spi::blocking::{Transactional, TransferInplace, Write};
 //use embedded_hal::digital::v2::{InputPin, OutputPin};
-use embedded_hal::spi::{Mode, Phase, Polarity, MODE_0};
-
+use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity, MODE_0};
+use embedded_hal_compat::{ForwardCompat, ReverseCompat};
 use fugit::RateExtU32;
 use numtoa::NumToA;
 use panic_probe as _;
 
+use radio_sx127x::base::HalError;
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
 use rp_pico as bsp;
@@ -35,7 +38,6 @@ use bsp::hal::{
     watchdog::Watchdog,
 };
 
-use radio_sx127x::Error as sx127xError; // Error name conflict with hals
 use radio_sx127x::{
     device::lora::{
         Bandwidth, CodingRate, FrequencyHopping, LoRaChannel, LoRaConfig, PayloadCrc,
@@ -44,6 +46,7 @@ use radio_sx127x::{
     device::{Channel, Modem, PaConfig, PaSelect},
     prelude::*, // prelude has Sx127x,
 };
+use radio_sx127x::{lora, Error as sx127xError}; // Error name conflict with hals
 
 use radio::{Receive, Transmit};
 
@@ -101,12 +104,16 @@ pub const CONFIG_RADIO: radio_sx127x::device::Config = radio_sx127x::device::Con
     timeout_ms: 100,
 };
 
-enum State {
+enum State<T>
+where
+    T: core::fmt::Debug + 'static,
+{
     Reset,
     Idle,
     Sending,
     SendingDone,
-    Receiving,
+    Received,
+    Error(sx127xError<HalError<T, Infallible, Infallible>>),
 }
 
 #[entry]
@@ -131,7 +138,8 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+    let mut delay =
+        cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz()).forward();
 
     let pins = bsp::Pins::new(
         pac.IO_BANK0,
@@ -148,19 +156,21 @@ fn main() -> ! {
     let _clk = pins.gpio10.into_mode::<FunctionSpi>();
 
     let spi = Spi::<_, _, 8>::new(pac.SPI1);
-    let spi = spi.init(
-        &mut pac.RESETS,
-        clocks.peripheral_clock.freq(),
-        20.MHz(),
-        &MODE_0,
-    );
+    let spi = spi
+        .init(
+            &mut pac.RESETS,
+            clocks.peripheral_clock.freq(),
+            20.MHz(),
+            &embedded_hal_02::spi::MODE_0,
+        )
+        .forward();
 
-    let cs = pins.gpio9.into_push_pull_output();
-    let reset = pins.gpio7.into_push_pull_output();
-    let busy = pins.gpio12.into_floating_input();
-    let ready = pins.gpio13.into_floating_input();
+    let cs = pins.gpio9.into_readable_output().forward();
+    let reset = pins.gpio7.into_readable_output().forward();
+    let busy = pins.gpio12.into_floating_input().forward();
+    let ready = pins.gpio13.into_floating_input().forward();
 
-    let lora = Sx127x::spi(spi, cs, busy, ready, reset, delay, &CONFIG_RADIO).unwrap();
+    let mut lora = Sx127x::spi(spi, cs, busy, ready, reset, delay, &CONFIG_RADIO).unwrap();
     /*let mut lora = sx127x_lora::LoRa::new(spi, cs, reset, FREQUENCY, delay).unwrap_or_else(|_x| {
         blink(&mut led, "module");
         crate::panic!("Failed to communicate with radio module!");
@@ -174,14 +184,53 @@ fn main() -> ! {
     let mut cursor = 0;
     let mut button = Button2::new(pins.gpio19.into_pull_up_input());
     let mut state = State::Idle;
+
+    lora.start_receive().unwrap();
+
     loop {
-        match state {
-            State::Reset => {}
-            State::Idle => {}
-            State::Sending => {}
-            State::Receiving => {}
-            State::SendingDone => {}
-        }
+        state = match state {
+            State::Reset => State::Reset,
+            State::Idle => {
+                if button.just_pressed() {
+                    lora.start_transmit(b"Kikooo");
+                    State::Sending
+                } else {
+                    match lora.check_receive(false) {
+                        Ok(true) => State::Received, //have a valid packet in the buffer
+                        Ok(false) => State::Idle,    //got an invalid packet
+                        Err(e) => State::Error(e),
+                    }
+                }
+            }
+            State::Sending => match lora.check_transmit() {
+                Ok(true) => State::SendingDone,
+                Ok(false) => State::Sending,
+                Err(e) => State::Error(e),
+            },
+            State::Received => match (|| {
+                let mut buff = [0u8; 256];
+                let (len, info) = lora.get_received(&mut buff)?;
+                info!(
+                    "received packet len = {} info : {} {}",
+                    len, info.rssi, info.snr
+                );
+                Ok(())
+            })() {
+                Ok(()) => State::Idle,
+                Err(e) => State::Error(e),
+            },
+            State::SendingDone => match lora.start_receive() {
+                Ok(()) => {
+                    info!("Packet transmitted");
+                    State::Idle
+                }
+                Err(e) => State::Error(e),
+            },
+            State::Error(e) => {
+                debug!("{:?}", defmt::Debug2Format(&e));
+                State::Reset
+            }
+        };
         /*
         match lora.poll_irq(Some(100)) {
             Ok(size) => {

@@ -7,7 +7,7 @@ version = "0.1.0"
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 #embedded-hal = { version = "0.2.7", features = ["unproven"] }
-#embedded-hal-compat ="0.7.0"
+embedded-hal-compat = {path="../embedded-hal-compat"}#"0.6.1"
 embedded-hal-02 = { version = "0.2.7", package="embedded-hal", features = ["unproven"]  }
 embedded-hal = "1.0.0-alpha.7"
 embedded-graphics = "0.7.1"
