@@ -75,7 +75,7 @@ pub const FREQUENCY: u32 = 433_400_000; // frequency in hertz ch_12: 915_000_000
 pub const CONFIG_CH: LoRaChannel = LoRaChannel {
     freq: FREQUENCY as u32, // frequency in hertz
     bw: Bandwidth::Bw125kHz,
-    sf: SpreadingFactor::Sf12,
+    sf: SpreadingFactor::Sf7,
     cr: CodingRate::Cr4_8,
 };
 
