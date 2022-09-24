@@ -3,7 +3,6 @@
 mod blink;
 mod input;
 
-use core::borrow::Borrow;
 use core::convert::Infallible;
 
 use blink::blink;
@@ -91,7 +90,7 @@ pub const CONFIG_LORA: LoRaConfig = LoRaConfig {
 
 pub const CONFIG_PA: PaConfig = PaConfig {
     output: PaSelect::Boost,
-    power: 10,
+    power: 1,
 };
 
 //let CONFIG_RADIO = Config::default() ;
@@ -192,7 +191,7 @@ fn main() -> ! {
             State::Reset => State::Reset,
             State::Idle => {
                 if button.just_pressed() {
-                    lora.start_transmit(b"Kikooo");
+                    lora.start_transmit(b"Kikooo\n UWU ");
                     State::Sending
                 } else {
                     match lora.check_receive(false) {
