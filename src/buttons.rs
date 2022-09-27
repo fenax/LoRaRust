@@ -2,28 +2,17 @@
 #![no_main]
 mod blink;
 mod input;
+mod stuff;
 
-use core::convert::Infallible;
-
-use blink::blink;
-use bsp::hal::spi::Enabled;
 use bsp::{entry, hal::gpio::FunctionSpi};
-use defmt::export::panic;
 use defmt::*;
 use defmt_rtt as _;
-use embedded_hal_compat::eh0_2::blocking::delay::DelayUs;
-use embedded_hal_compat::eh0_2::digital::v2::{InputPin, OutputPin};
-//use embedded_hal::spi::blocking::SpiDevice;
-//{Transfer, Write};
-use embedded_hal_compat::eh1_0::spi::blocking::{Transactional, TransferInplace, Write};
-//use embedded_hal::digital::v2::{InputPin, OutputPin};
-use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity, MODE_0};
-use embedded_hal_compat::{ForwardCompat, ReverseCompat};
+use embedded_hal_compat::eh0_2::digital::v2::InputPin;
+use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity};
+use embedded_hal_compat::ForwardCompat;
 use fugit::RateExtU32;
-use numtoa::NumToA;
 use panic_probe as _;
 
-use radio_sx127x::base::HalError;
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
 use rp_pico as bsp;
@@ -37,6 +26,7 @@ use bsp::hal::{
     watchdog::Watchdog,
 };
 
+use radio_sx127x::Error as sx127xError;
 use radio_sx127x::{
     device::lora::{
         Bandwidth, CodingRate, FrequencyHopping, LoRaChannel, LoRaConfig, PayloadCrc,
@@ -44,8 +34,7 @@ use radio_sx127x::{
     },
     device::{Channel, Modem, PaConfig, PaSelect},
     prelude::*, // prelude has Sx127x,
-};
-use radio_sx127x::{lora, Error as sx127xError}; // Error name conflict with hals
+}; // Error name conflict with hals
 
 use radio::{Receive, Transmit};
 
@@ -103,16 +92,20 @@ pub const CONFIG_RADIO: radio_sx127x::device::Config = radio_sx127x::device::Con
     timeout_ms: 100,
 };
 
-enum State<T>
-where
-    T: core::fmt::Debug + 'static,
+enum State
+//<T>
+//where
+//    T: core::fmt::Debug + 'static,
 {
+    Init,
+    PrepareIdle,
     Reset,
     Idle,
     Sending,
     SendingDone,
     Received,
-    Error(sx127xError<HalError<T, Infallible, Infallible>>),
+    Panic,
+    //    Error(sx127xError<HalError<T, Infallible, Infallible>>),
 }
 
 #[entry]
@@ -137,7 +130,7 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-    let mut delay =
+    let delay =
         cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz()).forward();
 
     let pins = bsp::Pins::new(
@@ -147,7 +140,7 @@ fn main() -> ! {
         &mut pac.RESETS,
     );
 
-    let mut led = pins.led.into_push_pull_output();
+    let mut _led = pins.led.into_push_pull_output();
     //blink(&mut led, &"Hello!");
 
     let _miso = pins.gpio8.into_mode::<FunctionSpi>();
@@ -180,127 +173,99 @@ fn main() -> ! {
     for (i, c) in message.chars().enumerate() {
         buffer[i] = c as u8;
     }
-    let mut cursor = 0;
+    let mut _cursor = 0;
     let mut button = Button2::new(pins.gpio19.into_pull_up_input());
-    let mut state = State::Idle;
-
-    lora.start_receive().unwrap();
+    let mut state = State::Init;
 
     loop {
-        state = match state {
-            State::Reset => State::Reset,
+        state = match state.run_state(&mut lora, &mut button) {
+            Err(stuff::Error::Radio(e)) => match e {
+                sx127xError::Hal(_) => crate::panic!("HAL problem"),
+                sx127xError::InvalidConfiguration => crate::panic!("invalid Configuration"),
+                sx127xError::Aborted => {
+                    info!("Transaction aborted");
+                    State::PrepareIdle
+                }
+                sx127xError::InvalidResponse => {
+                    info!("Invalid response");
+                    State::Reset
+                }
+                sx127xError::Timeout => {
+                    info!("Timeout");
+                    State::Reset
+                }
+                sx127xError::Crc => State::PrepareIdle,
+                sx127xError::BufferSize => State::PrepareIdle,
+                sx127xError::InvalidDevice(_) => {
+                    info!("invalid device, restarting");
+                    State::Reset
+                }
+            },
+            Ok(state) => state,
+        }
+    }
+}
+
+use core::fmt::Debug;
+
+impl State {
+    fn run_state<Hal: radio_sx127x::base::Hal, P: InputPin, T: Debug + 'static>(
+        &self,
+        lora: &mut radio_sx127x::Sx127x<Hal>,
+        button: &mut Button2<P>,
+    ) -> Result<Self, stuff::Error<T>>
+    where
+        stuff::Error<T>: From<sx127xError<T>>,
+        P::Error: Debug,
+        stuff::Error<T>: From<radio_sx127x::Error<<Hal as radio_sx127x::base::Hal>::Error>>,
+    {
+        match self {
+            State::Init => {
+                info!("init");
+                Ok(State::PrepareIdle)
+            }
+            State::Reset => {
+                crate::panic!("reset unimplemented")
+            }
+            State::PrepareIdle => {
+                lora.start_receive()?;
+
+                Ok(State::Idle)
+            }
             State::Idle => {
                 if button.just_pressed() {
-                    lora.start_transmit(b"Kikooo\n UWU ");
-                    State::Sending
+                    info!("Send packet");
+                    lora.start_transmit(b"Kikooo\n UWU ")?;
+                    Ok(State::Sending)
                 } else {
-                    match lora.check_receive(false) {
-                        Ok(true) => State::Received, //have a valid packet in the buffer
-                        Ok(false) => State::Idle,    //got an invalid packet
-                        Err(e) => State::Error(e),
+                    match lora.check_receive(false)? {
+                        true => Ok(State::Received), //have a valid packet in the buffer
+                        false => Ok(State::Idle),    //got an invalid packet
                     }
                 }
             }
-            State::Sending => match lora.check_transmit() {
-                Ok(true) => State::SendingDone,
-                Ok(false) => State::Sending,
-                Err(e) => State::Error(e),
+            State::Sending => match lora.check_transmit()? {
+                true => Ok(State::SendingDone),
+                false => Ok(State::Sending),
             },
-            State::Received => match (|| {
+            State::Received => {
                 let mut buff = [0u8; 256];
                 let (len, info) = lora.get_received(&mut buff)?;
                 info!(
                     "received packet len = {} info : {} {}",
                     len, info.rssi, info.snr
                 );
-                Ok(())
-            })() {
-                Ok(()) => State::Idle,
-                Err(e) => State::Error(e),
-            },
-            State::SendingDone => match lora.start_receive() {
-                Ok(()) => {
-                    info!("Packet transmitted");
-                    State::Idle
-                }
-                Err(e) => State::Error(e),
-            },
-            State::Error(e) => {
-                debug!("{:?}", defmt::Debug2Format(&e));
-                State::Reset
+                //Ok(Self::Idle)
+                lora.start_transmit(&buff[..len])?;
+                Ok(State::Sending)
             }
-        };
-        /*
-        match lora.poll_irq(Some(100)) {
-            Ok(size) => {
-                let mut cursor = 0;
-                let mut str_buff = [0u8; 20];
-                let text = size.numtoa(10, &mut str_buff);
-                for c in text {
-                    buffer2[cursor] = *c;
-                    cursor += 1;
-                }
-                buffer2[cursor] = b',';
-                cursor += 1;
-                let rssi = lora.get_packet_rssi();
-                let snr = lora.get_packet_snr();
-                if let Ok(rssi) = rssi {
-                    let text = rssi.numtoa(10, &mut str_buff);
-                    for c in text {
-                        buffer2[cursor] = *c;
-                        cursor += 1;
-                    }
-                    buffer2[cursor] = b',';
-                    cursor += 1;
-                }
-                if let Ok(snr) = snr {
-                    let text = (snr as i32).numtoa(10, &mut str_buff);
-                    for c in text {
-                        buffer2[cursor] = *c;
-                        cursor += 1;
-                    }
-                    buffer2[cursor] = b',';
-                    cursor += 1;
-                }
-                match lora.read_packet() {
-                    Ok(result) => {
-                        for c in &result[..size] {
-                            buffer2[cursor] = *c;
-                            cursor += 1;
-                        }
-                        let transmit = lora.transmit_payload_busy(buffer2, message.len());
-                        match transmit {
-                            Ok(packet_size) => info!("Sent packet with size: {}", packet_size),
-                            Err(_) => info!("Error"),
-                        }
-                        lora.set_mode(RadioMode::RxContinuous);
-                        info!("got {},{},{}:{}", size, rssi.unwrap(), snr.unwrap(), result);
-                    }
-                    Err(_) => info!("fail packet"),
-                }
+            State::SendingDone => {
+                lora.start_receive()?;
+                Ok(Self::Idle)
             }
-            Err(_) =>
-            //timeout
-            {
-                if button.just_pressed() {
-                    let transmit = lora.transmit_payload_busy(buffer, message.len());
-                    match transmit {
-                        Ok(packet_size) => info!("Sent packet with size: {}", packet_size),
-                        Err(_) => info!("Error"),
-                    }
-                    lora.set_mode(RadioMode::RxContinuous);
-                }
+            State::Panic => {
+                crate::panic!("panic")
             }
-        }*/
-    }
-}
-
-fn copy(src: &[u8], target: &mut [u8], cursor: &mut usize) {
-    for c in src {
-        if *cursor >= target.len() {
-            return;
         }
-        target[*cursor] = *c;
-        *cursor += 1;
     }
 }

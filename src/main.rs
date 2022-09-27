@@ -4,6 +4,7 @@
 #![no_std]
 #![no_main]
 
+mod blink;
 use bsp::entry;
 use defmt::*;
 use defmt_rtt as _;
@@ -55,6 +56,7 @@ fn main() -> ! {
 
     let mut led_pin = pins.led.into_push_pull_output();
 
+    blink::blink(&mut led_pin, "squee");
     loop {
         info!("on!");
         led_pin.set_high().unwrap();
