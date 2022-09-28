@@ -126,6 +126,11 @@ fn main() -> ! {
     let _mosi = pins.gpio11.into_mode::<FunctionSpi>();
     let _clk = pins.gpio10.into_mode::<FunctionSpi>();
 
+    let cs = pins.gpio9.into_readable_output().forward();
+    let reset = pins.gpio7.into_readable_output().forward();
+    let busy = pins.gpio12.into_floating_input().forward();
+    let ready = pins.gpio13.into_floating_input().forward();
+
     let spi = Spi::<_, _, 8>::new(pac.SPI1);
     let spi = spi
         .init(
@@ -136,8 +141,8 @@ fn main() -> ! {
         )
         .forward();
 
-    //  let mut lora = sx127x_lora::LoRa::new(spi, cs, reset, FREQUENCY, delay)
-    //    .expect("Failed to communicate with radio module!");
+    let mut lora =
+        Sx127x::spi(spi, cs, busy, ready, reset, delay.forward(), &CONFIG_RADIO).unwrap();
 
     //lora.set_tx_power(17, 1); //Using PA_BOOST. See your board for correct pin.
 
@@ -152,48 +157,76 @@ fn main() -> ! {
     let mut str: String<128> = String::new();
     let mut last = 0u32;
     let mut ready = true;
+    let mut sending = false;
     loop {
-        let key = keyboard.read();
-        if key != last {
-            let (m, c) = extract_modifiers(key);
-            let default = get_one_char(c);
+        if sending == false {
+            let key = keyboard.read();
+            if key != last {
+                let (m, c) = extract_modifiers(key);
+                let default = get_one_char(c);
 
-            let modified = get_one_char_from(
-                c,
-                if m.shift_l || m.shift_r {
-                    &KEYS_CAPS
-                } else if m.dollar {
-                    &KEYS_NUM
-                } else {
-                    &KEYS_ALPHA
-                },
-            );
-            if modified.is_none() {
-                ready = true;
-            }
-            if let (Some(car), true) = (modified, ready) {
-                _ = str.push(car);
-                info!("{}", str.as_str());
-                ready = false;
-            }
+                let modified = get_one_char_from(
+                    c,
+                    if m.shift_l || m.shift_r {
+                        &KEYS_CAPS
+                    } else if m.dollar {
+                        &KEYS_NUM
+                    } else {
+                        &KEYS_ALPHA
+                    },
+                );
+                if modified.is_none() {
+                    ready = true;
+                }
+                if let (Some(car), true) = (modified, ready) {
+                    _ = str.push(car);
+                    info!("{}", str.as_str());
+                    ready = false;
+                }
 
-            if ready && m.sharp {
-                info!("SENDING {}", str.as_str());
-                str.clear();
+                if ready && m.sharp {
+                    info!("SENDING {}", str.as_str());
+                    sending = true;
+                }
+                /*info!(
+                    "key is {:08X},{}{}{}{}{} {}    {}",
+                    key,
+                    if m.star { '*' } else { ' ' },
+                    if m.shift_l { '^' } else { ' ' },
+                    if m.shift_r { '%' } else { ' ' },
+                    if m.dollar { '$' } else { ' ' },
+                    if m.sharp { '#' } else { ' ' },
+                    default,
+                    modified
+                )*/
             }
-            /*info!(
-                "key is {:08X},{}{}{}{}{} {}    {}",
-                key,
-                if m.star { '*' } else { ' ' },
-                if m.shift_l { '^' } else { ' ' },
-                if m.shift_r { '%' } else { ' ' },
-                if m.dollar { '$' } else { ' ' },
-                if m.sharp { '#' } else { ' ' },
-                default,
-                modified
-            )*/
+            last = key;
         }
-        last = key;
+        state = match state.run_state(&mut lora, &mut sending, &mut str) {
+            Err(stuff::Error::Radio(e)) => match e {
+                sx127xError::Hal(_) => crate::panic!("HAL problem"),
+                sx127xError::InvalidConfiguration => crate::panic!("invalid Configuration"),
+                sx127xError::Aborted => {
+                    info!("Transaction aborted");
+                    State::PrepareIdle
+                }
+                sx127xError::InvalidResponse => {
+                    info!("Invalid response");
+                    State::Reset
+                }
+                sx127xError::Timeout => {
+                    info!("Timeout");
+                    State::Reset
+                }
+                sx127xError::Crc => State::PrepareIdle,
+                sx127xError::BufferSize => State::PrepareIdle,
+                sx127xError::InvalidDevice(_) => {
+                    info!("invalid device, restarting");
+                    State::Reset
+                }
+            },
+            Ok(state) => state,
+        }
     }
 }
 
@@ -201,21 +234,21 @@ use core::fmt::Debug;
 use core::ptr::read;
 
 impl State {
-    fn run_state<Hal: radio_sx127x::base::Hal, K: ReadRegister<u32>, T: Debug + 'static, D, S>(
+    fn run_state<Hal: radio_sx127x::base::Hal, T: Debug + 'static /* , D, S*/>(
         &self,
-        //lora: &mut radio_sx127x::Sx127x<Hal>,
-        keyboard: &mut K,
-        disp: &mut Disp<D, S>,
+        lora: &mut radio_sx127x::Sx127x<Hal>,
+        sending: &mut bool,
+        send_buffer: &mut String<128>,
     ) -> Result<Self, stuff::Error<T>>
     where
         stuff::Error<T>: From<sx127xError<T>>,
-        D::Error: Debug,
+        //D::Error: Debug,
         stuff::Error<T>: From<radio_sx127x::Error<<Hal as radio_sx127x::base::Hal>::Error>>,
         //        DI: display_interface::WriteOnlyDataCommand,
         //        RST: OutputPin,
         //        MODEL: mipidsi::models::Model,
-        D: DrawTarget<Color = <S as TextRenderer>::Color>,
-        S: embedded_graphics::text::renderer::TextRenderer + Copy,
+        //D: DrawTarget<Color = <S as TextRenderer>::Color>,
+        //S: embedded_graphics::text::renderer::TextRenderer + Copy,
     {
         match self {
             State::Init => {
@@ -226,16 +259,41 @@ impl State {
                 crate::panic!("reset unimplemented")
             }
             State::PrepareIdle => {
-                info!("to idle");
-                //lora.start_receive()?;
+                lora.start_receive()?;
 
                 Ok(State::Idle)
             }
-            State::Idle => Ok(State::Idle),
-            State::Sending => Ok(State::Idle),
-            State::Received => Ok(State::PrepareIdle),
+            State::Idle => {
+                if *sending {
+                    info!("Send packet");
+                    lora.start_transmit(send_buffer.as_str().as_bytes())?;
+                    send_buffer.clear();
+                    *sending = false;
+                    Ok(State::Sending)
+                } else {
+                    match lora.check_receive(false)? {
+                        true => Ok(State::Received), //have a valid packet in the buffer
+                        false => Ok(State::Idle),    //got an invalid packet
+                    }
+                }
+            }
+            State::Sending => match lora.check_transmit()? {
+                true => Ok(State::SendingDone),
+                false => Ok(State::Sending),
+            },
+            State::Received => {
+                let mut buff = [0u8; 256];
+                let (len, info) = lora.get_received(&mut buff)?;
+                info!(
+                    "received packet len = {} info : {} {}{}",
+                    len, info.rssi, info.snr, buff
+                );
+                //Ok(Self::Idle)
+                //lora.start_transmit(&buff[..len])?;
+                Ok(State::PrepareIdle)
+            }
             State::SendingDone => {
-                //lora.start_receive()?;
+                lora.start_receive()?;
                 Ok(Self::Idle)
             }
             State::Panic => {
