@@ -1,5 +1,6 @@
 use core::{default, mem::size_of};
 
+use bitmask_enum::bitmask;
 use embedded_hal_02::digital::v2::{InputPin, OutputPin};
 use radio_sx127x::base::Hal;
 
@@ -19,25 +20,71 @@ pub struct Modifier {
     pub sharp: bool,
 }
 
-pub fn extract_modifiers(data: u32) -> (Modifier, u32) {
-    let mut modifier = Modifier::default();
+// layout
 
-    if (data & 0x80000000) != 0 {
-        modifier.star = true;
+// 00 01 02 03 14 15 17 28 29 30 31
+// 07 06 05 04 13 16 18 27 26 25 24
+//  08 09 10 11 12 19 20 21 22 13
+
+//  q  w  e  r  t  y  u  i  o  p  *
+//  ^  a  s  d  f  g  h  j  k  l  ^^
+//   $  z  x  c  v  b  n  m  _  #
+
+#[bitmask(u32)]
+pub enum Keys {
+    Q,
+    W,
+    E,
+    R,
+    D,
+    S,
+    A,
+    ShiftL,
+    Dollar,
+    Z,
+    X,
+    C,
+    V,
+    F,
+    T,
+    Y,
+    G,
+    U,
+    H,
+    B,
+    N,
+    M,
+    Underscore,
+    Sharp,
+    ShiftR,
+    L,
+    K,
+    J,
+    I,
+    O,
+    P,
+    Star,
+}
+
+impl Keys {
+    pub const Shift: Keys = Keys::ShiftR.or(Keys::ShiftL);
+    pub const Modifiers: Keys = Keys::Star.or(Keys::Shift).or(Keys::Dollar).or(Keys::Sharp);
+
+    pub fn get_one_char(self) -> Option<char> {
+        let no_mod = self.and(Keys::Modifiers.not()).bits();
+        let source = if self.intersects(Keys::Shift) {
+            KEYS_CAPS
+        } else if self.intersects(Keys::Dollar) {
+            KEYS_NUM
+        } else {
+            KEYS_ALPHA
+        };
+        if no_mod.count_ones() == 1 {
+            Some(source[no_mod.trailing_zeros() as usize])
+        } else {
+            None
+        }
     }
-    if (data & 0x00000080) != 0 {
-        modifier.shift_l = true;
-    }
-    if (data & 0x01000000) != 0 {
-        modifier.shift_r = true;
-    }
-    if (data & 0x00000100) != 0 {
-        modifier.dollar = true;
-    }
-    if (data & 0x00800000) != 0 {
-        modifier.sharp = true;
-    }
-    (modifier, data & 0x7E7FFE7F)
 }
 
 pub const KEYS_ALPHA: [char; 32] = [
@@ -53,6 +100,10 @@ pub const KEYS_NUM: [char; 32] = [
     'b', 'n', 'm', '_', '#', '%', 'l', 'k', 'j', '8', '9', '0', '*',
 ];
 
+pub fn is_key_pressed(data: Keys, key: Keys) -> bool {
+    data.contains(key)
+}
+
 pub fn get_one_char_from(data: u32, source: &[char; 32]) -> Option<char> {
     if data.count_ones() == 1 {
         Some(source[data.trailing_zeros() as usize])
@@ -63,6 +114,25 @@ pub fn get_one_char_from(data: u32, source: &[char; 32]) -> Option<char> {
 
 pub fn get_one_char(data: u32) -> Option<char> {
     get_one_char_from(data, &KEYS_ALPHA)
+}
+
+pub struct Keyboard<T>
+where
+    T: ReadRegister<u32>,
+{
+    reg: T,
+}
+
+impl<T> Keyboard<T>
+where
+    T: ReadRegister<u32>,
+{
+    pub fn new(reg: T) -> Self {
+        Keyboard { reg }
+    }
+    pub fn get_keys(&mut self) -> Keys {
+        self.reg.read().into()
+    }
 }
 
 pub struct ShiftRegister<CLK, DATA, LATCH, VAL>

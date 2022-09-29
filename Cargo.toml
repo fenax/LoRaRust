@@ -14,6 +14,7 @@ embedded-graphics = "0.7.1"
 mipidsi = "0.3.0"
 display-interface = "0.4.1"
 display-interface-spi = "0.4.1"
+
 fugit = "0.3.6"
 numtoa = "0.2.4"
 nb = "*"
@@ -34,6 +35,8 @@ radio-sx127x  = {  git = "https://github.com/rust-iot/rust-radio-sx127x", defaul
 # If you're not going to use a Board Support Package you'll need these:
 # rp2040-hal = { version="0.6", features=["rt"] }
 # rp2040-boot2 = "0.2"
+
+bitmask-enum = "2.0.1"
 
 
 [[bin]]

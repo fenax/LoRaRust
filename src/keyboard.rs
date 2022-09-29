@@ -152,39 +152,31 @@ fn main() -> ! {
     let k_latch = pins.gpio14.into_push_pull_output();
     pull_up.set_high();
 
-    let mut keyboard: ShiftRegister<_, _, _, u32> = ShiftRegister::new(k_clk, k_data, k_latch);
+    let mut keyboard = Keyboard::new(ShiftRegister::new(k_clk, k_data, k_latch));
     let mut state = State::Init;
     let mut str: String<128> = String::new();
-    let mut last = 0u32;
+    let mut last = Keys::none();
     let mut ready = true;
     let mut sending = false;
     loop {
         if sending == false {
-            let key = keyboard.read();
+            let key = keyboard.get_keys();
             if key != last {
-                let (m, c) = extract_modifiers(key);
-                let default = get_one_char(c);
+                let car = key.get_one_char();
 
-                let modified = get_one_char_from(
-                    c,
-                    if m.shift_l || m.shift_r {
-                        &KEYS_CAPS
-                    } else if m.dollar {
-                        &KEYS_NUM
-                    } else {
-                        &KEYS_ALPHA
-                    },
-                );
-                if modified.is_none() {
+                if car.is_none() {
                     ready = true;
                 }
-                if let (Some(car), true) = (modified, ready) {
+                if let (Some(car), true) = (car, ready) {
                     _ = str.push(car);
                     info!("{}", str.as_str());
                     ready = false;
+                } else if key == Keys::Star | Keys::ShiftR {
+                    _ = str.pop();
+                    info!("{}", str.as_str());
                 }
 
-                if ready && m.sharp {
+                if ready && key == Keys::Sharp {
                     info!("SENDING {}", str.as_str());
                     sending = true;
                 }
