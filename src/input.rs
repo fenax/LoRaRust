@@ -1,8 +1,11 @@
-use core::{default, mem::size_of};
+#![allow(dead_code)]
+
+use core::mem::size_of;
 
 use bitmask_enum::bitmask;
+use defmt::intern;
+use defmt::Format;
 use embedded_hal_02::digital::v2::{InputPin, OutputPin};
-use radio_sx127x::base::Hal;
 
 pub struct Button<P>
 where
@@ -29,6 +32,17 @@ pub struct Modifier {
 //  q  w  e  r  t  y  u  i  o  p  *
 //  ^  a  s  d  f  g  h  j  k  l  ^^
 //   $  z  x  c  v  b  n  m  _  #
+
+//  1  2  3  4  5  6  7  8  9  0  *
+//  ^  ,  ;  :  '  ?  !  *  (  )  ^^
+//   +  -  /  =  &  |
+
+// ! " # $ % & ' ( ) * + , - . /
+// : ; < = > ?
+// @
+// [ \ ] ^ _
+// `
+// { | } ~ ?
 
 #[bitmask(u32)]
 pub enum Keys {
@@ -64,6 +78,153 @@ pub enum Keys {
     O,
     P,
     Star,
+}
+
+pub enum InputState {
+    Running,
+    Updated,
+    Validated,
+    Overflow,
+    NotForMe(Keys),
+}
+
+impl<const T: usize> Format for InputBuffer<T> {
+    fn format(&self, _fmt: defmt::Formatter) {
+        let t = intern!("{=[u8]:a}");
+        defmt::export::istr(&t);
+        let len = self.len();
+        defmt::export::usize(&(len + 2));
+        for i in 0..self.cursor {
+            defmt::export::u8(&self.buffer[i])
+        }
+        defmt::export::u8(&('>' as u8));
+        defmt::export::u8(&('<' as u8));
+        for i in self.cursor..len {
+            defmt::export::u8(&self.buffer[i])
+        }
+        //defmt::export::u8(&self.buffer);
+        //defmt::export::u8(self)
+        // on the wire: [1, 42]
+        //  string index ^  ^^ `self`
+    }
+}
+
+pub struct InputBuffer<const S: usize> {
+    pub buffer: [u8; S],
+    last: Keys,
+    ready: bool,
+    cursor: usize,
+}
+
+impl<const S: usize> InputBuffer<S> {
+    pub fn new() -> Self {
+        Self {
+            buffer: [0u8; S],
+            last: Keys::none(),
+            ready: true,
+            cursor: 0,
+        }
+    }
+    pub fn len(&self) -> usize {
+        let mut len = 0;
+        for c in self.buffer {
+            if c != 0 {
+                len += 1;
+            } else {
+                break;
+            }
+        }
+        len
+    }
+    pub fn get_data(&self) -> &[u8] {
+        &self.buffer[0..self.len()]
+    }
+    pub fn clear(&mut self) {
+        self.buffer = [0u8; S];
+        self.cursor = 0;
+    }
+    pub fn process_input(&mut self, key: Keys) -> InputState {
+        let mut ret = InputState::Running;
+        if key != self.last {
+            if key.contains(Keys::Star) {
+                let key = key.xor(Keys::Star);
+                match key {
+                    Keys::ShiftR => {
+                        if self.cursor == 0 {
+                            ret = InputState::Overflow;
+                        } else {
+                            for i in self.cursor..S {
+                                self.buffer[i - 1] = self.buffer[i];
+                            }
+                            self.cursor -= 1;
+                            self.buffer[S - 1] = 0;
+                            ret = InputState::Updated;
+                        }
+                        //_ = str.pop();
+                        //info!("{}", str.as_str());
+                    }
+                    Keys::Q => {
+                        //Left
+                        if self.cursor == 0 {
+                            ret = InputState::Overflow;
+                        } else {
+                            self.cursor -= 1;
+                            ret = InputState::Updated;
+                        }
+                    }
+                    Keys::E => {
+                        //Right
+                        if self.cursor >= S || self.buffer[self.cursor] == 0 {
+                            ret = InputState::Overflow;
+                        } else {
+                            self.cursor += 1;
+                            ret = InputState::Updated;
+                        }
+                    }
+                    val => {
+                        ret = InputState::NotForMe(val);
+                    }
+                }
+            } else {
+                let car = key.get_one_char();
+
+                if car.is_none() {
+                    self.ready = true;
+                }
+                if let (Some(car), true) = (car, self.ready) {
+                    if self.cursor >= S || self.buffer[S - 1] != 0 {
+                        ret = InputState::Overflow;
+                    } else {
+                        for i in (self.cursor..S - 1).rev() {
+                            self.buffer[i + 1] = self.buffer[i];
+                        }
+                        self.buffer[self.cursor] = car as u8;
+                        self.cursor += 1;
+                        ret = InputState::Updated;
+                    }
+                    //_ = str.push(car);
+                    //info!("{}", str.as_str());
+                    self.ready = false;
+                } else if self.ready && key == Keys::Sharp {
+                    //info!("SENDING {}", str.as_str());
+                    ret = InputState::Validated;
+                }
+                /*info!(
+                    "key is {:08X},{}{}{}{}{} {}    {}",
+                    key,
+                    if m.star { '*' } else { ' ' },
+                    if m.shift_l { '^' } else { ' ' },
+                    if m.shift_r { '%' } else { ' ' },
+                    if m.dollar { '$' } else { ' ' },
+                    if m.sharp { '#' } else { ' ' },
+                    default,
+                    modified
+                )*/
+            }
+        }
+        self.last = key;
+        ret
+    }
 }
 
 impl Keys {
@@ -181,10 +342,10 @@ where
 
         let bits = size_of::<VAL>() * 8;
 
-        self.clk.set_low();
-        self.latch.set_low();
+        _ = self.clk.set_low();
+        _ = self.latch.set_low();
         cortex_m::asm::delay(10);
-        self.latch.set_high();
+        _ = self.latch.set_high();
 
         for _ in 0..bits {
             v <<= one;
@@ -193,10 +354,10 @@ where
             if self.data.is_high().unwrap() {
                 v += one;
             }
-            self.clk.set_high();
+            _ = self.clk.set_high();
             cortex_m::asm::delay(10);
 
-            self.clk.set_low();
+            _ = self.clk.set_low();
         }
 
         v

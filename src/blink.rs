@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use cortex_m::asm::delay;
 use embedded_hal_02::digital::v2::OutputPin;
 
@@ -20,7 +22,7 @@ impl Morse {
     }
 }
 
-static ms: u32 = 125000;
+static MS: u32 = 125000;
 
 //light then dark
 //Dash   ---_    3 1
@@ -92,10 +94,10 @@ where
     let (h, l) = s.time();
     if h > 0 {
         pin.set_high().unwrap();
-        delay(h * 200 * ms);
+        delay(h * 200 * MS);
     }
     pin.set_low().unwrap();
-    delay(l * 200 * ms)
+    delay(l * 200 * MS)
 }
 
 pub fn blink_iter<P, I>(pin: &mut P, iter: I)

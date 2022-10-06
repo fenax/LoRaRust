@@ -11,10 +11,10 @@ use bsp::{entry, hal::gpio::FunctionSpi};
 
 use defmt::*;
 use defmt_rtt as _;
-use embedded_hal_compat::eh0_2::digital::v2::{InputPin, OutputPin};
-use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity, MODE_0};
-use embedded_hal_compat::eh1_0::spi::blocking::{Transactional, TransferInplace, Write};
-use embedded_hal_compat::{ForwardCompat, ReverseCompat};
+use embedded_hal_compat::eh0_2::digital::v2::InputPin;
+//use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity, MODE_0};
+//use embedded_hal_compat::eh1_0::spi::blocking::{Transactional, TransferInplace, Write};
+use embedded_hal_compat::ForwardCompat;
 use fugit::RateExtU32;
 use numtoa::NumToA;
 use panic_probe as _;
@@ -142,7 +142,7 @@ fn main() -> ! {
 
     // let mut btn = Button2::new(pins.gpio12.into_pull_up_input());
 
-    let mut res = Sx127x::spi(spi, cs, busy, ready, reset, delay.forward(), &CONFIG_RADIO);
+    let res = Sx127x::spi(spi, cs, busy, ready, reset, delay.forward(), &CONFIG_RADIO);
 
     //  let mut lora = sx127x_lora::LoRa::new(spi, cs, reset, FREQUENCY, delay)
     //    .expect("Failed to communicate with radio module!");
@@ -161,7 +161,7 @@ fn main() -> ! {
     .draw(&mut display)
     .unwrap();
     let mut lora = res.unwrap();
-    let mut cursor = 70;
+    let cursor = 70;
 
     let message = "Bonjour la radio!";
     let mut buffer = [0; 255];

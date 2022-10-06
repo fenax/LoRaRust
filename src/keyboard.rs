@@ -5,19 +5,17 @@ mod input;
 mod stuff;
 
 use bsp::{entry, hal::gpio::FunctionSpi};
-use embedded_graphics::text::renderer::TextRenderer;
 use heapless::String;
 use input::*;
 use stuff::*;
 
 use defmt::*;
 use defmt_rtt as _;
-use embedded_hal_compat::eh0_2::digital::v2::{InputPin, OutputPin};
-use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity, MODE_0};
-use embedded_hal_compat::eh1_0::spi::blocking::{Transactional, TransferInplace, Write};
-use embedded_hal_compat::{ForwardCompat, ReverseCompat};
+use embedded_hal_compat::eh0_2::digital::v2::OutputPin;
+//use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity, MODE_0};
+//use embedded_hal_compat::eh1_0::spi::blocking::{Transactional, TransferInplace, Write};
+use embedded_hal_compat::ForwardCompat;
 use fugit::RateExtU32;
-use numtoa::NumToA;
 use panic_probe as _;
 
 use display_interface_spi::SPIInterface;
@@ -52,8 +50,6 @@ use radio_sx127x::prelude::*;
 use radio_sx127x::Error as sx127xError; // Error name conflict with hals
 
 use radio::{Receive, Transmit};
-
-use crate::input::Button2;
 
 struct Disp<D, S>
 where
@@ -98,29 +94,26 @@ fn main() -> ! {
         sio.gpio_bank0,
         &mut pac.RESETS,
     );
-    let mut _led = pins.led.into_push_pull_output();
-    //blink(&mut led, &"Hello!");
-    let _mosi_display = pins.gpio19.into_mode::<FunctionSpi>();
-    let _sck_display = pins.gpio18.into_mode::<FunctionSpi>();
-    //    let cs_display = pins.gpio17.into_push_pull_output();
-    //    let dc_display = pins.gpio16.into_push_pull_output();
+
+    let _mosi_display = pins.gpio3.into_mode::<FunctionSpi>();
+    let _sck_display = pins.gpio2.into_mode::<FunctionSpi>();
+    let cs_display = pins.gpio5.into_push_pull_output();
+    let dc_display = pins.gpio28.into_push_pull_output();
 
     let spi_display = Spi::<_, _, 8>::new(pac.SPI0).init(
         &mut pac.RESETS,
         clocks.peripheral_clock.freq(),
-        65.MHz(),
+        20.MHz(),
         &embedded_hal_compat::eh0_2::spi::MODE_3,
     );
     // create a DisplayInterface from SPI and DC pin, with no manual CS control
-    //let di = SPIInterface::new(spi_display, dc_display, cs_display);
+    let di = SPIInterface::new(spi_display, dc_display, cs_display);
     // create the ILI9486 display driver in rgb666 color mode from the display interface and RST pin
-    //let mut display = Display::st7789(di, NoPin::default());
-    //display.init(&mut delay, DisplayOptions::default()).unwrap();
+    let mut display = Display::st7789(di, NoPin::default());
+    display.init(&mut delay, DisplayOptions::default()).unwrap();
     // clear the display to black
-    //display.clear(Rgb565::BLUE).unwrap();
-    //let style = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
-
-    //let mut led_pin = pins.led.into_push_pull_output();
+    display.clear(Rgb565::BLUE).unwrap();
+    let style = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
 
     let _miso = pins.gpio8.into_mode::<FunctionSpi>();
     let _mosi = pins.gpio11.into_mode::<FunctionSpi>();
@@ -150,51 +143,38 @@ fn main() -> ! {
     let k_clk = pins.gpio15.into_push_pull_output();
     let k_data = pins.gpio16.into_floating_input();
     let k_latch = pins.gpio14.into_push_pull_output();
-    pull_up.set_high();
+    _ = pull_up.set_high();
 
     let mut keyboard = Keyboard::new(ShiftRegister::new(k_clk, k_data, k_latch));
     let mut state = State::Init;
+    let mut buffer = InputBuffer::<128>::new();
     let mut str: String<128> = String::new();
-    let mut last = Keys::none();
-    let mut ready = true;
+
     let mut sending = false;
+
+    Text::new("Hello Rust", Point::new(100, 100), style)
+        .draw(&mut display)
+        .unwrap();
+
     loop {
         if sending == false {
             let key = keyboard.get_keys();
-            if key != last {
-                let car = key.get_one_char();
-
-                if car.is_none() {
-                    ready = true;
+            match buffer.process_input(key) {
+                InputState::Running => {}
+                InputState::Updated => {
+                    info!("{}", buffer);
                 }
-                if let (Some(car), true) = (car, ready) {
-                    _ = str.push(car);
-                    info!("{}", str.as_str());
-                    ready = false;
-                } else if key == Keys::Star | Keys::ShiftR {
-                    _ = str.pop();
-                    info!("{}", str.as_str());
+                InputState::Overflow => {
+                    info!("Overflow");
                 }
-
-                if ready && key == Keys::Sharp {
-                    info!("SENDING {}", str.as_str());
+                InputState::Validated => {
+                    info!("SENDING {}", buffer);
                     sending = true;
                 }
-                /*info!(
-                    "key is {:08X},{}{}{}{}{} {}    {}",
-                    key,
-                    if m.star { '*' } else { ' ' },
-                    if m.shift_l { '^' } else { ' ' },
-                    if m.shift_r { '%' } else { ' ' },
-                    if m.dollar { '$' } else { ' ' },
-                    if m.sharp { '#' } else { ' ' },
-                    default,
-                    modified
-                )*/
+                InputState::NotForMe(key) => {}
             }
-            last = key;
         }
-        state = match state.run_state(&mut lora, &mut sending, &mut str) {
+        state = match state.run_state(&mut lora, &mut sending, &mut buffer) {
             Err(stuff::Error::Radio(e)) => match e {
                 sx127xError::Hal(_) => crate::panic!("HAL problem"),
                 sx127xError::InvalidConfiguration => crate::panic!("invalid Configuration"),
@@ -230,7 +210,7 @@ impl State {
         &self,
         lora: &mut radio_sx127x::Sx127x<Hal>,
         sending: &mut bool,
-        send_buffer: &mut String<128>,
+        send_buffer: &mut InputBuffer<128>,
     ) -> Result<Self, stuff::Error<T>>
     where
         stuff::Error<T>: From<sx127xError<T>>,
@@ -258,7 +238,7 @@ impl State {
             State::Idle => {
                 if *sending {
                     info!("Send packet");
-                    lora.start_transmit(send_buffer.as_str().as_bytes())?;
+                    lora.start_transmit(send_buffer.get_data())?;
                     send_buffer.clear();
                     *sending = false;
                     Ok(State::Sending)
