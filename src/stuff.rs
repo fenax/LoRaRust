@@ -1,49 +1,22 @@
-use core::convert::Infallible;
+#![allow(dead_code)]
 
-use bsp::hal::spi::Enabled;
-use bsp::{entry, hal::gpio::FunctionSpi};
-use defmt::export::panic;
-use defmt::*;
 use defmt_rtt as _;
-use embedded_hal_compat::eh0_2::blocking::delay::DelayUs;
-use embedded_hal_compat::eh0_2::digital::v2::{InputPin, OutputPin};
-//use embedded_hal::spi::blocking::SpiDevice;
-//{Transfer, Write};
-use embedded_hal_compat::eh1_0::spi::blocking::{Transactional, TransferInplace, Write};
-//use embedded_hal::digital::v2::{InputPin, OutputPin};
-use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity, MODE_0};
-use embedded_hal_compat::{ForwardCompat, ReverseCompat};
-use fugit::RateExtU32;
-use numtoa::NumToA;
+use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity};
+
 use panic_probe as _;
 
-use radio_sx127x::base::HalError;
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
-use rp_pico as bsp;
 // use sparkfun_pro_micro_rp2040 as bsp;
 
-use bsp::hal::{
-    clocks::{init_clocks_and_plls, Clock},
-    pac,
-    sio::Sio,
-    spi::Spi,
-    watchdog::Watchdog,
-};
-
+use radio_sx127x::Error as sx127xError;
 use radio_sx127x::{
     device::lora::{
         Bandwidth, CodingRate, FrequencyHopping, LoRaChannel, LoRaConfig, PayloadCrc,
         PayloadLength, SpreadingFactor,
     },
     device::{Channel, Modem, PaConfig, PaSelect},
-    prelude::*, // prelude has Sx127x,
-};
-use radio_sx127x::{lora, Error as sx127xError}; // Error name conflict with hals
-
-use radio::{Receive, Transmit};
-
-use crate::input::Button2;
+}; // Error name conflict with hals
 
 //use hal::spidev::{self, SpidevOptions};
 //use hal::sysfs_gpio::Direction;
@@ -109,7 +82,6 @@ pub enum State
     Sending,
     SendingDone,
     Received,
-    Panic,
     //    Error(sx127xError<HalError<T, Infallible, Infallible>>),
 }
 

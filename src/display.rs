@@ -298,9 +298,6 @@ impl State {
                 lora.start_receive()?;
                 Ok(Self::Idle)
             }
-            State::Panic => {
-                crate::panic!("panic")
-            }
         }
     }
 }

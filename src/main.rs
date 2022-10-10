@@ -58,7 +58,7 @@ fn main() -> ! {
 
     blink::blink(&mut led_pin, "squee");
     loop {
-        let val = 0u64;
+        let _val = 0u64;
         info!("on!");
         led_pin.set_high().unwrap();
         delay.delay_ms(500);

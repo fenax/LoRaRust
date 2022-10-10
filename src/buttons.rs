@@ -12,6 +12,7 @@ use embedded_hal_compat::eh0_2::spi::{Mode, Phase, Polarity};
 use embedded_hal_compat::ForwardCompat;
 use fugit::RateExtU32;
 use panic_probe as _;
+use stuff::*;
 
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
@@ -92,22 +93,6 @@ pub const CONFIG_RADIO: radio_sx127x::device::Config = radio_sx127x::device::Con
     timeout_ms: 100,
 };
 
-enum State
-//<T>
-//where
-//    T: core::fmt::Debug + 'static,
-{
-    Init,
-    PrepareIdle,
-    Reset,
-    Idle,
-    Sending,
-    SendingDone,
-    Received,
-    Panic,
-    //    Error(sx127xError<HalError<T, Infallible, Infallible>>),
-}
-
 #[entry]
 fn main() -> ! {
     info!("Program start");
@@ -175,7 +160,7 @@ fn main() -> ! {
     }
     let mut _cursor = 0;
     let mut button = Button2::new(pins.gpio19.into_pull_up_input());
-    let mut state = State::Init;
+    let mut state = stuff::State::Init;
 
     loop {
         state = match state.run_state(&mut lora, &mut button) {
@@ -208,7 +193,7 @@ fn main() -> ! {
 
 use core::fmt::Debug;
 
-impl State {
+impl stuff::State {
     fn run_state<Hal: radio_sx127x::base::Hal, P: InputPin, T: Debug + 'static>(
         &self,
         lora: &mut radio_sx127x::Sx127x<Hal>,
@@ -262,9 +247,6 @@ impl State {
             State::SendingDone => {
                 lora.start_receive()?;
                 Ok(Self::Idle)
-            }
-            State::Panic => {
-                crate::panic!("panic")
             }
         }
     }

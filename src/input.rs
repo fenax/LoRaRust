@@ -228,7 +228,9 @@ impl<const S: usize> InputBuffer<S> {
 }
 
 impl Keys {
+    #[allow(non_upper_case_globals)]
     pub const Shift: Keys = Keys::ShiftR.or(Keys::ShiftL);
+    #[allow(non_upper_case_globals)]
     pub const Modifiers: Keys = Keys::Star.or(Keys::Shift).or(Keys::Dollar).or(Keys::Sharp);
 
     pub fn get_one_char(self) -> Option<char> {

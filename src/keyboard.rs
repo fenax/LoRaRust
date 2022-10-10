@@ -5,7 +5,7 @@ mod input;
 mod stuff;
 
 use bsp::{entry, hal::gpio::FunctionSpi};
-use heapless::String;
+//use heapless::String;
 use input::*;
 use stuff::*;
 
@@ -20,7 +20,6 @@ use fugit::RateExtU32;
 use numtoa::NumToA;
 use panic_probe as _;
 
-use display_interface_spi::SPIInterface;
 use embedded_graphics::{
     draw_target::DrawTarget,
     mono_font::{ascii::FONT_6X10, MonoTextStyle},
@@ -176,7 +175,7 @@ fn main() -> ! {
     )
     .draw(&mut display)
     .unwrap();
-    display.flush();
+    display.flush().unwrap();
     let mut lora = res.unwrap();
 
     //lora.set_tx_power(17, 1); //Using PA_BOOST. See your board for correct pin.
@@ -190,11 +189,11 @@ fn main() -> ! {
     let mut keyboard = Keyboard::new(ShiftRegister::new(k_clk, k_data, k_latch));
     let mut state = State::Init;
     let mut buffer = InputBuffer::<128>::new();
-    let mut str: String<128> = String::new();
+    //let mut str: String<128> = String::new();
 
-    let mut cursor = 6;
+    let cursor = 6;
     let mut sending = false;
-    /// TODO :  drawing above line 6 causes garbage
+    // TODO :  drawing above line 6 causes garbage
     //Text::new("Otterly radiolifique", Point::new(0, 6), style)
     //    .draw(&mut display)
     //    .unwrap();
@@ -230,7 +229,7 @@ fn main() -> ! {
                     info!("SENDING {}", buffer);
                     sending = true;
                 }
-                InputState::NotForMe(key) => {}
+                InputState::NotForMe(_key) => {}
             }
         }
         state = match state.run_state(&mut lora, &mut sending, &mut buffer, &mut disp) {
@@ -258,12 +257,11 @@ fn main() -> ! {
             },
             Ok(state) => state,
         };
-        disp.display.flush();
+        disp.display.flush().unwrap();
     }
 }
 
 use core::fmt::Debug;
-use core::ptr::read;
 
 impl State {
     fn run_state<Hal: radio_sx127x::base::Hal, T: Debug + 'static, D, S>(
@@ -358,9 +356,6 @@ impl State {
             State::SendingDone => {
                 lora.start_receive()?;
                 Ok(Self::Idle)
-            }
-            State::Panic => {
-                crate::panic!("panic")
             }
         }
     }
