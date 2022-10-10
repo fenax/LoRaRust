@@ -2,6 +2,7 @@
 #![no_main]
 mod blink;
 mod input;
+mod interface;
 mod stuff;
 
 use bsp::{entry, hal::gpio::FunctionSpi};
@@ -27,6 +28,7 @@ use embedded_graphics::{
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
     text::*,
+    Pixel,
 };
 
 //use sh1107::*;
@@ -123,8 +125,7 @@ fn main() -> ! {
 
     display.init().unwrap();
     display.clear();
-    display.flush().unwrap();
-
+    //display.flush().unwrap();
     // create a DisplayInterface from SPI and DC pin, with no manual CS control
     //let di = SPIInterface::new(spi_display, dc_display, cs_display);
     // create the ILI9486 display driver in rgb666 color mode from the display interface and RST pin
@@ -175,7 +176,10 @@ fn main() -> ! {
     )
     .draw(&mut display)
     .unwrap();
+
     display.flush().unwrap();
+    //crate::panic!("aaaaa");
+
     let mut lora = res.unwrap();
 
     //lora.set_tx_power(17, 1); //Using PA_BOOST. See your board for correct pin.
@@ -203,6 +207,12 @@ fn main() -> ! {
         cursor,
         style,
     };
+    let mut interface = Oled128x128::new();
+    interface.set_input(b"input", 0);
+    interface.set_title(b"title");
+    interface.draw(&mut disp.display);
+    disp.display.flush();
+    crate::panic!("aaaaaa");
     loop {
         Rectangle::new(Point::new(0, 118), Size::new(128, 10))
             .into_styled(clear_style)
@@ -257,11 +267,15 @@ fn main() -> ! {
             },
             Ok(state) => state,
         };
+        //Pixel(Point::new(127, 127), BinaryColor::On).draw(&mut disp.display);
+
         disp.display.flush().unwrap();
     }
 }
 
 use core::fmt::Debug;
+
+use crate::interface::{Interface, Oled128x128};
 
 impl State {
     fn run_state<Hal: radio_sx127x::base::Hal, T: Debug + 'static, D, S>(
