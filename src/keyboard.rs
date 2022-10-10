@@ -209,13 +209,13 @@ fn main() -> ! {
             .draw(&mut disp.display)
             .unwrap();
         Text::new(
-            &unsafe { core::str::from_utf8_unchecked(buffer.get_data()) },
+            unsafe { core::str::from_utf8_unchecked(buffer.get_data()) },
             Point::new(0, 124),
             disp.style,
         )
         .draw(&mut disp.display)
         .unwrap();
-        if sending == false {
+        if !sending {
             let key = keyboard.get_keys();
             match buffer.process_input(key) {
                 InputState::Running => {}
@@ -327,7 +327,7 @@ impl State {
                     .draw(&mut disp.display)
                     .unwrap();
                 let text = info.rssi.numtoa_str(10, &mut str_buff);
-                Text::new(text, Point::new(0 + 6 * 5, disp.cursor), disp.style)
+                Text::new(text, Point::new(6 * 5, disp.cursor), disp.style)
                     .draw(&mut disp.display)
                     .unwrap();
                 if let Some(snr) = info.snr {

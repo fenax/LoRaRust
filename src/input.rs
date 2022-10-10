@@ -97,8 +97,8 @@ impl<const T: usize> Format for InputBuffer<T> {
         for i in 0..self.cursor {
             defmt::export::u8(&self.buffer[i])
         }
-        defmt::export::u8(&('>' as u8));
-        defmt::export::u8(&('<' as u8));
+        defmt::export::u8(&b'>');
+        defmt::export::u8(&b'<');
         for i in self.cursor..len {
             defmt::export::u8(&self.buffer[i])
         }

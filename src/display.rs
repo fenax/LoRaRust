@@ -281,7 +281,7 @@ impl State {
                     .draw(&mut disp.display)
                     .unwrap();
                 }
-                disp.cursor = disp.cursor + 10;
+                disp.cursor += 10;
                 Text::new(
                     unsafe { core::str::from_utf8_unchecked(&buff[..len]) },
                     Point::new(60, disp.cursor),
