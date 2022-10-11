@@ -139,6 +139,9 @@ impl<const S: usize> InputBuffer<S> {
     pub fn get_data(&self) -> &[u8] {
         &self.buffer[0..self.len()]
     }
+    pub fn get_cursor(&self) -> usize {
+        self.cursor
+    }
     pub fn clear(&mut self) {
         self.buffer = [0u8; S];
         self.cursor = 0;

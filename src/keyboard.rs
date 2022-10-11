@@ -202,19 +202,34 @@ fn main() -> ! {
     //    .draw(&mut display)
     //    .unwrap();
     display.flush().unwrap();
-    let mut disp = Disp {
+    /*let mut disp = Disp {
         display,
         cursor,
         style,
-    };
+    };*/
     let mut interface = Oled128x128::new();
+    interface.set_title(b"Rusty Communicator");
+
+    /*
     interface.set_input(b"input", 0);
     interface.set_title(b"title");
-    interface.draw(&mut disp.display);
-    disp.display.flush();
-    crate::panic!("aaaaaa");
+    interface.add_log(b"Squee squee", Some(19), Some(-5));
+    interface.add_log(b"PAtapatate", Some(123), Some(555));
+    interface.add_log(b"Voyage Voyage", None, None);
+    interface.add_log(b"Loutre", None, None);
+    interface.add_log(b"Avion", None, None);
+    interface.add_log(b"Renard", None, None);
+    interface.add_log(b"Carotte", None, None);
+    interface.add_log(b"Chips", None, None);
+    interface.add_log(b"Blop", None, None);
+    */
+
+    interface.draw(&mut display);
+
+    display.flush();
+
     loop {
-        Rectangle::new(Point::new(0, 118), Size::new(128, 10))
+        /*Rectangle::new(Point::new(0, 118), Size::new(128, 10))
             .into_styled(clear_style)
             .draw(&mut disp.display)
             .unwrap();
@@ -224,12 +239,13 @@ fn main() -> ! {
             disp.style,
         )
         .draw(&mut disp.display)
-        .unwrap();
+        .unwrap();*/
         if !sending {
             let key = keyboard.get_keys();
             match buffer.process_input(key) {
                 InputState::Running => {}
                 InputState::Updated => {
+                    interface.set_input(buffer.get_data(), buffer.get_cursor());
                     info!("{}", buffer);
                 }
                 InputState::Overflow => {
@@ -237,12 +253,13 @@ fn main() -> ! {
                 }
                 InputState::Validated => {
                     info!("SENDING {}", buffer);
+                    interface.set_input(b"", 0);
                     sending = true;
                 }
                 InputState::NotForMe(_key) => {}
             }
         }
-        state = match state.run_state(&mut lora, &mut sending, &mut buffer, &mut disp) {
+        state = match state.run_state(&mut lora, &mut sending, &mut buffer, &mut interface) {
             Err(stuff::Error::Radio(e)) => match e {
                 sx127xError::Hal(_) => crate::panic!("HAL problem"),
                 sx127xError::InvalidConfiguration => crate::panic!("invalid Configuration"),
@@ -268,8 +285,8 @@ fn main() -> ! {
             Ok(state) => state,
         };
         //Pixel(Point::new(127, 127), BinaryColor::On).draw(&mut disp.display);
-
-        disp.display.flush().unwrap();
+        interface.draw(&mut display);
+        display.flush().unwrap();
     }
 }
 
@@ -278,24 +295,25 @@ use core::fmt::Debug;
 use crate::interface::{Interface, Oled128x128};
 
 impl State {
-    fn run_state<Hal: radio_sx127x::base::Hal, T: Debug + 'static, D, S>(
+    fn run_state<Hal: radio_sx127x::base::Hal, T: Debug + 'static /* , D, S*/>(
         &self,
         lora: &mut radio_sx127x::Sx127x<Hal>,
         sending: &mut bool,
         send_buffer: &mut InputBuffer<128>,
-        disp: &mut Disp<D, S>,
+        disp: &mut impl Interface,
+        //disp: &mut Disp<D, S>,
     ) -> Result<Self, stuff::Error<T>>
     where
         stuff::Error<T>: From<sx127xError<T>>,
-        D::Error: Debug,
+        //D::Error: Debug,
         stuff::Error<T>: From<radio_sx127x::Error<<Hal as radio_sx127x::base::Hal>::Error>>,
         //        DI: display_interface::WriteOnlyDataCommand,
         //        RST: OutputPin,
         //        MODEL: mipidsi::models::Model,
         //D: DrawTarget<Color = <S as TextRenderer>::Color>,
         //S: embedded_graphics::text::renderer::TextRenderer + Copy,
-        D: DrawTarget<Color = <S as TextRenderer>::Color>,
-        S: embedded_graphics::text::renderer::TextRenderer + Copy,
+        //D: DrawTarget<Color = <S as TextRenderer>::Color>,
+        //S: embedded_graphics::text::renderer::TextRenderer + Copy,
     {
         match self {
             State::Init => {
@@ -335,34 +353,7 @@ impl State {
                     "received packet len = {} info : {} {}{}",
                     len, info.rssi, info.snr, buff
                 );
-                let mut str_buff = [0u8; 20];
-                let text = len.numtoa_str(10, &mut str_buff);
-                Text::new(text, Point::new(0, disp.cursor), disp.style)
-                    .draw(&mut disp.display)
-                    .unwrap();
-                let text = info.rssi.numtoa_str(10, &mut str_buff);
-                Text::new(text, Point::new(6 * 5, disp.cursor), disp.style)
-                    .draw(&mut disp.display)
-                    .unwrap();
-                if let Some(snr) = info.snr {
-                    let text = (snr).numtoa_str(10, &mut str_buff);
-                    Text::new(
-                        text,
-                        Point::new(60 + 6 * 5 + 6 * 5, disp.cursor),
-                        disp.style,
-                    )
-                    .draw(&mut disp.display)
-                    .unwrap();
-                }
-                //disp.cursor = disp.cursor + 10;
-                Text::new(
-                    unsafe { core::str::from_utf8_unchecked(&buff[..len]) },
-                    Point::new(80, disp.cursor),
-                    disp.style,
-                )
-                .draw(&mut disp.display)
-                .unwrap();
-                disp.cursor += 10;
+                disp.add_log(&buff[..len], info.snr, Some(info.rssi));
                 //Ok(Self::Idle)
                 //lora.start_transmit(&buff[..len])?;
                 Ok(State::PrepareIdle)

@@ -10,8 +10,9 @@ use embedded_graphics::{
     text::*,
 };
 use heapless::String;
+use numtoa::NumToA;
 
-#[derive(Default)]
+#[derive(Default, Clone, PartialEq)]
 pub struct LogLine {
     up: String<6>,
     down: String<6>,
@@ -24,6 +25,9 @@ pub trait Interface {
     fn add_log(&mut self, body: &[u8], snr: Option<i16>, rssi: Option<i16>);
 }
 
+const SMALL_WIDTH: usize = 4;
+const BIG_WIDTH: usize = 6;
+const DISPLAY_WIDTH: usize = 128;
 impl Interface for Oled128x128<'_> {
     fn set_title(&mut self, title: &[u8]) {
         self.title.clear();
@@ -40,11 +44,52 @@ impl Interface for Oled128x128<'_> {
     }
 
     fn add_log(&mut self, body: &[u8], snr: Option<i16>, rssi: Option<i16>) {
-        todo!()
+        let mut line = LogLine::default();
+        let mut push_line = |line: &mut LogLine| {
+            self.body_modified = true;
+            for i in 1..self.body.len() {
+                self.body[i - 1] = self.body[i].clone()
+            }
+            self.body[self.body.len() - 1] = line.clone();
+            *line = LogLine::default();
+        };
+        if let Some(snr) = snr {
+            let mut str_buff = [0u8; 6];
+            let text = snr.numtoa_str(10, &mut str_buff);
+            line.up.push_str(&text).unwrap();
+        }
+        if let Some(rssi) = rssi {
+            let mut str_buff = [0u8; 6];
+            let text = rssi.numtoa_str(10, &mut str_buff);
+            line.down.push_str(&text).unwrap();
+        }
+        let prefix = line.up.len().max(line.down.len()) * SMALL_WIDTH;
+        let mut available = (DISPLAY_WIDTH - prefix) / BIG_WIDTH;
+        if let Ok(s) = core::str::from_utf8(body) {
+            s.chars().for_each(|c| {
+                if c == '\r' || c == '\n' {
+                    push_line(&mut line);
+                    available = DISPLAY_WIDTH / BIG_WIDTH;
+                } else {
+                    if available == 0 {
+                        push_line(&mut line);
+                        available = DISPLAY_WIDTH / BIG_WIDTH;
+                    }
+                    line.body.push(c);
+                    available -= 1;
+                }
+            });
+        } else {
+            line.body.push_str("__UNPARSABLE__").unwrap();
+        }
+        if line != LogLine::default() {
+            push_line(&mut line);
+        }
     }
 }
 
 pub struct Oled128x128<'a> {
+    text_style: TextStyle,
     style: MonoTextStyle<'a, BinaryColor>,
     style_small: MonoTextStyle<'a, BinaryColor>,
     clear_style: PrimitiveStyle<BinaryColor>,
@@ -60,6 +105,7 @@ pub struct Oled128x128<'a> {
 impl Oled128x128<'_> {
     pub fn new() -> Self {
         Self {
+            text_style: TextStyleBuilder::new().baseline(Baseline::Top).build(),
             style: MonoTextStyle::new(&FONT_6X12, BinaryColor::On),
             style_small: MonoTextStyle::new(&FONT_4X6, BinaryColor::On),
             clear_style: PrimitiveStyleBuilder::new()
@@ -82,7 +128,8 @@ impl Oled128x128<'_> {
             //.unwrap();
 
             self.input_modified = false;
-            Text::new(&self.input, Point::new(0, 127), self.style).draw(display);
+            Text::with_text_style(&self.input, Point::new(0, 116), self.style, self.text_style)
+                .draw(display);
         }
         if self.title_modified {
             Rectangle::new(Point::new(0, 0), Size::new(128, 12))
@@ -91,7 +138,8 @@ impl Oled128x128<'_> {
             //.unwrap();
 
             self.title_modified = false;
-            Text::new(&self.title, Point::new(0, 12), self.style).draw(display);
+            Text::with_text_style(&self.title, Point::new(0, 0), self.style, self.text_style)
+                .draw(display);
         }
         if self.body_modified {
             Rectangle::new(Point::new(0, 12), Size::new(128, 128 - 12 * 2))
@@ -99,15 +147,28 @@ impl Oled128x128<'_> {
                 .draw(display);
             self.body_modified = false;
             for (i, line) in self.body.iter().enumerate() {
-                let y = i as i32 * 12 + 12;
-                let u = Text::new(&line.up, Point::new(0, y), self.style_small).draw(display);
-                let d = Text::new(&line.down, Point::new(0, y + 6), self.style_small).draw(display);
+                let y = i as i32 * 12 + 16;
+                let u = Text::with_text_style(
+                    &line.up,
+                    Point::new(0, y),
+                    self.style_small,
+                    self.text_style,
+                )
+                .draw(display);
+                let d = Text::with_text_style(
+                    &line.down,
+                    Point::new(0, y + 6),
+                    self.style_small,
+                    self.text_style,
+                )
+                .draw(display);
                 let x = if let (Ok(u), Ok(d)) = (u, d) {
                     i32::max(u.x, d.x)
                 } else {
                     0
                 };
-                Text::new(&line.body, Point::new(x, y), self.style).draw(display);
+                Text::with_text_style(&line.body, Point::new(x, y), self.style, self.text_style)
+                    .draw(display);
             }
         }
     }
