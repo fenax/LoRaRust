@@ -25,6 +25,19 @@ pub struct Modifier {
 
 // layout
 
+pub const KEYS_ALPHA: [char; 32] = [
+    'q', 'w', 'e', 'r', 'd', 's', 'a', '^', '$', 'z', 'x', 'c', 'v', 'f', 't', 'y', 'g', 'u', 'h',
+    'b', 'n', 'm', ' ', '#', '%', 'l', 'k', 'j', 'i', 'o', 'p', '*',
+];
+pub const KEYS_CAPS: [char; 32] = [
+    'Q', 'W', 'E', 'R', 'D', 'S', 'A', '^', '$', 'Z', 'X', 'C', 'V', 'F', 'T', 'Y', 'G', 'U', 'H',
+    'B', 'N', 'M', ' ', '#', '%', 'L', 'K', 'J', 'I', 'O', 'P', '*',
+];
+pub const KEYS_NUM: [char; 32] = [
+    '1', '2', '3', '4', '"', '@', '&', '^', '$', ',', ';', '.', ':', '#', '5', '6', '(', '7', ')',
+    '!', '?', '\'', '_', '#', '%', '%', '$', '=', '8', '9', '0', '*',
+];
+
 // 00 01 02 03 14 15 17 28 29 30 31
 // 07 06 05 04 13 16 18 27 26 25 24
 //  08 09 10 11 12 19 20 21 22 13
@@ -33,9 +46,13 @@ pub struct Modifier {
 //  ^  a  s  d  f  g  h  j  k  l  ^^
 //   $  z  x  c  v  b  n  m  _  #
 
+pub const LAYOUT_NUM: &'static str = &" 1 2 3 4 5 6 7 8 9 0 *
+  ^ & @ \" # ( ) = $ % ^^
+  $ , ; . : ! ? ' _ #";
+
 //  1  2  3  4  5  6  7  8  9  0  *
-//  ^  ,  ;  :  '  ?  !  *  (  )  ^^
-//   +  -  /  =  &  |
+//  ^  &  @  "  #  (  )  =  $  %  ^^
+//   $  ,  ;  .  :  !  ?  '  _  #
 
 // ! " # $ % & ' ( ) * + , - . /
 // : ; < = > ?
@@ -81,7 +98,7 @@ pub enum Keys {
 }
 
 pub enum InputState {
-    Running,
+    Running(Keys),
     Updated,
     Validated,
     Overflow,
@@ -147,7 +164,7 @@ impl<const S: usize> InputBuffer<S> {
         self.cursor = 0;
     }
     pub fn process_input(&mut self, key: Keys) -> InputState {
-        let mut ret = InputState::Running;
+        let mut ret = InputState::Running(key);
         if key != self.last {
             if key.contains(Keys::Star) {
                 let key = key.xor(Keys::Star);
@@ -252,19 +269,6 @@ impl Keys {
         }
     }
 }
-
-pub const KEYS_ALPHA: [char; 32] = [
-    'q', 'w', 'e', 'r', 'd', 's', 'a', '^', '$', 'z', 'x', 'c', 'v', 'f', 't', 'y', 'g', 'u', 'h',
-    'b', 'n', 'm', '_', '#', '%', 'l', 'k', 'j', 'i', 'o', 'p', '*',
-];
-pub const KEYS_CAPS: [char; 32] = [
-    'Q', 'W', 'E', 'R', 'D', 'S', 'A', '^', '$', 'Z', 'X', 'C', 'V', 'F', 'T', 'Y', 'G', 'U', 'H',
-    'B', 'N', 'M', '_', '#', '%', 'L', 'K', 'J', 'I', 'O', 'P', '*',
-];
-pub const KEYS_NUM: [char; 32] = [
-    '1', '2', '3', '4', 'd', 's', 'a', '^', '$', 'z', 'x', 'c', 'v', 'f', '5', '6', 'g', '7', 'h',
-    'b', 'n', 'm', '_', '#', '%', 'l', 'k', 'j', '8', '9', '0', '*',
-];
 
 pub fn is_key_pressed(data: Keys, key: Keys) -> bool {
     data.contains(key)

@@ -243,7 +243,14 @@ fn main() -> ! {
         if !sending {
             let key = keyboard.get_keys();
             match buffer.process_input(key) {
-                InputState::Running => {}
+                InputState::Running(key) => {
+                    let key = key.and(Keys::Modifiers);
+                    if key == Keys::Dollar {
+                        interface.set_overlay(Some(input::LAYOUT_NUM));
+                    } else {
+                        interface.set_overlay(None);
+                    }
+                }
                 InputState::Updated => {
                     interface.set_input(buffer.get_data(), buffer.get_cursor());
                     info!("{}", buffer);

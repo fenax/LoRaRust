@@ -2,8 +2,9 @@
 
 use core::i32::MAX;
 
+use defmt::info;
 use embedded_graphics::{
-    mono_font::{ascii::FONT_4X6, ascii::FONT_6X12, MonoTextStyle},
+    mono_font::{ascii::FONT_4X6, ascii::FONT_6X12, MonoTextStyle, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
@@ -22,13 +23,26 @@ pub struct LogLine {
 pub trait Interface {
     fn set_title(&mut self, title: &[u8]);
     fn set_input(&mut self, input: &[u8], cursor: usize);
+    fn set_overlay(&mut self, overlay: Option<&'static str>);
     fn add_log(&mut self, body: &[u8], snr: Option<i16>, rssi: Option<i16>);
 }
 
 const SMALL_WIDTH: usize = 4;
 const BIG_WIDTH: usize = 6;
 const DISPLAY_WIDTH: usize = 128;
+const DISPLAY_CHAR_WIDTH: usize = DISPLAY_WIDTH / BIG_WIDTH;
 impl Interface for Oled128x128<'_> {
+    fn set_overlay(&mut self, overlay: Option<&'static str>) {
+        if overlay != self.overlay {
+            self.overlay = overlay;
+            if overlay == None {
+                self.body_modified = true;
+            } else {
+                self.overlay_modified = true;
+            }
+        }
+    }
+
     fn set_title(&mut self, title: &[u8]) {
         self.title.clear();
         self.title
@@ -38,8 +52,23 @@ impl Interface for Oled128x128<'_> {
 
     fn set_input(&mut self, input: &[u8], cursor: usize) {
         self.input.clear();
-        self.input
-            .push_str(unsafe { core::str::from_utf8_unchecked(input) });
+        if let Ok(s) = core::str::from_utf8(&input) {
+            //self.cursor = cursor.clamp(0, DISPLAY_CHAR_WIDTH);
+            let len = s.chars().count();
+            if len > DISPLAY_CHAR_WIDTH {
+                let toskip = cursor
+                    .saturating_sub(DISPLAY_CHAR_WIDTH / 2)
+                    .min(len.saturating_sub(DISPLAY_CHAR_WIDTH));
+                self.cursor = cursor - toskip;
+                self.input = s.chars().skip(toskip).take(DISPLAY_CHAR_WIDTH).collect();
+            } else {
+                self.cursor = cursor;
+                self.input.push_str(s);
+            }
+        } else {
+            self.cursor = 0;
+            self.input.push_str("## ERROR ##");
+        };
         self.input_modified = true;
     }
 
@@ -93,31 +122,50 @@ pub struct Oled128x128<'a> {
     style: MonoTextStyle<'a, BinaryColor>,
     style_small: MonoTextStyle<'a, BinaryColor>,
     clear_style: PrimitiveStyle<BinaryColor>,
+    fill_style: PrimitiveStyle<BinaryColor>,
+    overlay_style: MonoTextStyle<'a, BinaryColor>,
+    overlay_text_style: TextStyle,
+    overlay: Option<&'static str>,
     title: String<22>,
     body: [LogLine; 8],
     input: String<22>,
     cursor: usize,
+    delay: u16,
+    overlay_modified: bool,
     title_modified: bool,
     body_modified: bool,
     input_modified: bool,
 }
 
+const BLINK_PHASE: u16 = 30;
 impl Oled128x128<'_> {
     pub fn new() -> Self {
         Self {
             text_style: TextStyleBuilder::new().baseline(Baseline::Top).build(),
+            overlay_text_style: TextStyleBuilder::new().alignment(Alignment::Center).build(),
             style: MonoTextStyle::new(&FONT_6X12, BinaryColor::On),
             style_small: MonoTextStyle::new(&FONT_4X6, BinaryColor::On),
+            overlay_style: MonoTextStyleBuilder::new()
+                .background_color(BinaryColor::Off)
+                .font(&FONT_6X12)
+                .text_color(BinaryColor::On)
+                .build(),
             clear_style: PrimitiveStyleBuilder::new()
                 .fill_color(BinaryColor::Off)
+                .build(),
+            fill_style: PrimitiveStyleBuilder::new()
+                .fill_color(BinaryColor::On)
                 .build(),
             title: String::default(),
             body: Default::default(),
             input: String::default(),
+            overlay: None,
             cursor: 0,
+            delay: 0,
             title_modified: false,
             body_modified: false,
             input_modified: false,
+            overlay_modified: false,
         }
     }
     pub fn draw(&mut self, display: &mut impl DrawTarget<Color = BinaryColor>) {
@@ -128,8 +176,21 @@ impl Oled128x128<'_> {
             //.unwrap();
 
             self.input_modified = false;
+            //let partial: String<64> = self.input.chars().rev().take(21).collect();
             Text::with_text_style(&self.input, Point::new(0, 116), self.style, self.text_style)
                 .draw(display);
+        }
+        self.delay += 1;
+        if self.delay == BLINK_PHASE {
+            //Fill
+            let x = ((self.cursor * BIG_WIDTH) + 1).clamp(1, 126) as i32;
+            Rectangle::new(Point::new(x, 117), Size::new(1, 10))
+                .into_styled(self.fill_style)
+                .draw(display);
+        } else if self.delay == BLINK_PHASE * 2 {
+            //Clear by forcing redraw of input box
+            self.input_modified = true;
+            self.delay = 0;
         }
         if self.title_modified {
             Rectangle::new(Point::new(0, 0), Size::new(128, 12))
@@ -169,6 +230,17 @@ impl Oled128x128<'_> {
                 };
                 Text::with_text_style(&line.body, Point::new(x, y), self.style, self.text_style)
                     .draw(display);
+            }
+        }
+        if self.body_modified || self.overlay_modified {
+            if let Some(overlay) = self.overlay {
+                Text::with_text_style(
+                    overlay,
+                    Point::new(64, 64),
+                    self.overlay_style,
+                    self.overlay_text_style,
+                )
+                .draw(display);
             }
         }
     }
