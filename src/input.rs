@@ -6,6 +6,7 @@ use bitmask_enum::bitmask;
 use defmt::intern;
 use defmt::Format;
 use embedded_hal_02::digital::v2::{InputPin, OutputPin};
+use paste::paste;
 
 pub struct Button<P>
 where
@@ -22,6 +23,126 @@ pub struct Modifier {
     pub dollar: bool,
     pub sharp: bool,
 }
+
+macro_rules! count_tt {
+    () => { 0 };
+    ($odd:tt $($a:tt $b:tt)*) => { (count_tt!($($a)*) << 1) | 1 };
+    ($($a:tt $even:tt)*) => { count_tt!($($a)*) << 1 };
+}
+
+macro_rules! build_keyboard {
+    ($type_name : ident,$data_size:ty,
+        [
+            $($key_codes:literal)*
+        ],
+        [
+            $($key_names:ident)*
+        ],
+        [$(
+            [$modifier:ident [$($modifier_key:ident),*]]
+        ),*]
+    ) => {
+        #[bitmask($data_size)]
+        pub enum $type_name {
+            $(
+                    $key_names = 1<< $key_codes,
+            )*
+            $(
+                $modifier = {
+                    let mut val = 0;
+                    val |= $(Self::$modifier_key.bits;)*
+                    val
+                },
+            )*
+        }
+        impl $type_name{
+            const KEYMAP_SIZE:usize=count_tt!($($key_codes)*);
+            const KEYMAP:[usize;$type_name::KEYMAP_SIZE] = [$($key_codes),*];
+        }
+    };
+}
+
+build_keyboard!(Keys2,u32,
+[00 01 02 03 14 15 17 28 29 30 31
+ 07 06 05 04 13 16 18 27 26 25 24
+ 08 09 10 11 12 19 20 21 22 23],
+[Q W E R T Y U I O P Star
+  ShiftL  A S D F G H J K L ShiftR
+  Dollar  Z X C V B N M Space Return],
+[[Modifiers [Star, ShiftL, ShiftR, Dollar, Return]],
+  [Shift[ShiftR, ShiftL]],
+  [TextMod[Shift, Dollar]]
+  ]
+
+);
+
+macro_rules! build_keymap {
+    (   $name:ident,
+        $modifiers:ident,
+        $textmod:ident,
+        $default:literal,
+        $format:literal,
+        [
+            $($($mod:ident)* [$map:literal]),*
+        ]
+    ) => {
+        paste!{
+            impl $name {
+                const fn make_map(keys:&[u8;$name::KEYMAP_SIZE])->[u8;$name::KEYMAP_SIZE]{
+                    let mut out = [0u8;$name::KEYMAP_SIZE];
+                    let mut i = 0usize;
+                    loop{
+                        out[$name::KEYMAP[i]] = keys[i];
+                        i +=1;
+                        if i ==$name::KEYMAP_SIZE{
+                            break
+                        }
+                    }
+                    out
+                }
+                const DEFAULT_MAP : [u8;$name::KEYMAP_SIZE] = $name::make_map($default);
+                $(
+                    const [<$($mod:upper _)* MAP>] : [u8;$name::KEYMAP_SIZE] = $name::make_map($map);
+                )*
+
+                pub fn get_one_char(self) -> Option<u8> {
+                    let no_mod = self.and($name::$modifiers.not()).bits();
+                    let mods = self.and($name::$modifiers);
+                    if mods.and($name::$textmod.not()).is_none(){
+                        let source = $(
+                            if $( mods.intersects($name::$mod) &&)* true{
+                                $name::[<$($mod:upper _)* MAP>]
+                            }else
+                        )*
+                        {
+                            $name::DEFAULT_MAP
+                        };
+                        if no_mod.count_ones() == 1 {
+                            Some(source[no_mod.trailing_zeros() as usize])
+                        } else {
+                            None
+                        }
+                    }else{
+                        None
+                    }
+                }
+            }
+        }
+
+    };
+}
+
+build_keymap!(
+    Keys2,
+    Modifiers,
+    TextMod,
+    b"qwertyuiop*^asdfghjkl^*zxcvbnm *",
+    b"* * * * * * * * * * *\n* * * * * * * * * * *\n * * * * * * * * * *",
+    [
+        Shift[b"QWERTYUIOP**ASDFGHJKL**ZXCVBNM *"],
+        Dollar[b"1234567890**&@\"#()=$%**,;.:!?'_*"]
+    ]
+);
 
 // layout
 
@@ -40,7 +161,7 @@ pub const KEYS_NUM: [char; 32] = [
 
 // 00 01 02 03 14 15 17 28 29 30 31
 // 07 06 05 04 13 16 18 27 26 25 24
-//  08 09 10 11 12 19 20 21 22 13
+//  08 09 10 11 12 19 20 21 22 23
 
 //  q  w  e  r  t  y  u  i  o  p  *
 //  ^  a  s  d  f  g  h  j  k  l  ^^
@@ -119,10 +240,6 @@ impl<const T: usize> Format for InputBuffer<T> {
         for i in self.cursor..len {
             defmt::export::u8(&self.buffer[i])
         }
-        //defmt::export::u8(&self.buffer);
-        //defmt::export::u8(self)
-        // on the wire: [1, 42]
-        //  string index ^  ^^ `self`
     }
 }
 
