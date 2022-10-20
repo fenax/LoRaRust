@@ -1,13 +1,14 @@
 #![no_std]
 #![no_main]
 mod blink;
-mod input;
+//mod input;
 mod interface;
 mod stuff;
 
 use bsp::{entry, hal::gpio::FunctionSpi};
 //use heapless::String;
-use input::*;
+//use input::*;
+use embedded_keypad::{keypad::*, traits::HasLayout, traits::InnerKeys};
 use stuff::*;
 
 use defmt::*;
@@ -20,6 +21,9 @@ use embedded_hal_compat::ForwardCompat;
 use fugit::RateExtU32;
 use numtoa::NumToA;
 use panic_probe as _;
+use stuff::{Delay10Mhz, Keys};
+
+use shift_register::input::{ReadRegister, ShiftRegister};
 
 use embedded_graphics::{
     draw_target::DrawTarget,
@@ -190,11 +194,16 @@ fn main() -> ! {
     let k_latch = pins.gpio14.into_push_pull_output();
     _ = pull_up.set_high();
 
-    let mut keyboard = Keyboard::new(ShiftRegister::new(k_clk, k_data, k_latch));
-    let mut state = State::Init;
-    let mut buffer = InputBuffer::<128>::new();
-    //let mut str: String<128> = String::new();
+    let mut keyboard: ShiftRegister<_, _, _, u32, Delay10Mhz> =
+        ShiftRegister::new(k_clk, k_data, k_latch);
 
+    let mut state = State::Init;
+    let mut buffer = InputBuffer::<128, Keys>::new();
+    //let mut str: String<128> = String::new();
+    buffer.left = Keys::Q | Keys::Star;
+    buffer.right = Keys::E | Keys::Star;
+    buffer.backspace = Keys::Star | Keys::ShiftR;
+    buffer.validate = Keys::Return;
     let cursor = 6;
     let mut sending = false;
     // TODO :  drawing above line 6 causes garbage
@@ -241,15 +250,14 @@ fn main() -> ! {
         .draw(&mut disp.display)
         .unwrap();*/
         if !sending {
-            let key = keyboard.get_keys();
-            match buffer.process_input(key) {
+            let key = keyboard.read();
+            match buffer.process_input(key.into()) {
                 InputState::Running(key) => {
-                    let key = key.and(Keys::Modifiers);
-                    if key == Keys::Dollar {
-                        interface.set_overlay(Some(input::LAYOUT_NUM));
+                    interface.set_overlay(if key.is_none() {
+                        None
                     } else {
-                        interface.set_overlay(None);
-                    }
+                        Some(unsafe { core::str::from_utf8_unchecked(key.get_layout()) })
+                    });
                 }
                 InputState::Updated => {
                     interface.set_input(buffer.get_data(), buffer.get_cursor());
@@ -306,7 +314,7 @@ impl State {
         &self,
         lora: &mut radio_sx127x::Sx127x<Hal>,
         sending: &mut bool,
-        send_buffer: &mut InputBuffer<128>,
+        send_buffer: &mut InputBuffer<128, Keys>,
         disp: &mut impl Interface,
         //disp: &mut Disp<D, S>,
     ) -> Result<Self, stuff::Error<T>>

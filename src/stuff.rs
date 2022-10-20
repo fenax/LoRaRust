@@ -23,6 +23,41 @@ use radio_sx127x::{
 //use bsp::hal::Delay;
 //use hal::{Pin, Spidev};
 
+use embedded_keypad::{build_keyboard, build_keymap};
+build_keyboard!(Keys,u32,
+[00 01 02 03 14 15 17 28 29 30 31
+ 07 06 05 04 13 16 18 27 26 25 24
+ 08 09 10 11 12 19 20 21 22 23],
+[Q W E R T Y U I O P Star
+  ShiftL  A S D F G H J K L ShiftR
+  Dollar  Z X C V B N M Space Return],
+[[Modifiers [Star, ShiftL, ShiftR, Dollar, Return]],
+  [Shift[ShiftR, ShiftL]],
+  [TextMod[Shift, Dollar]]
+  ]
+
+);
+
+build_keymap!(
+    Keys,
+    Modifiers,
+    TextMod,
+    b"qwertyuiop*^asdfghjkl^*zxcvbnm *",
+    b"* * * * * * * * * * *\n* * * * * * * * * * *\n * * * * * * * * * *",
+    [
+        Shift[b"QWERTYUIOP**ASDFGHJKL**ZXCVBNM *"],
+        Dollar[b"1234567890**&@\"#()=$%**,;.:!?'_*"]
+    ]
+);
+
+pub struct Delay10Mhz {}
+
+impl shift_register::CycleDelay for Delay10Mhz {
+    fn delay() {
+        cortex_m::asm::delay(10);
+    }
+}
+
 pub const MODE: Mode = Mode {
     //  SPI mode for radio
     phase: Phase::CaptureOnSecondTransition,

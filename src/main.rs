@@ -5,15 +5,19 @@
 #![no_main]
 
 mod blink;
+mod stuff;
 use bsp::entry;
 use defmt::*;
 use defmt_rtt as _;
 use embedded_hal_compat::eh0_2::digital::v2::OutputPin;
+use embedded_keypad::keypad::*;
 use panic_probe as _;
 use shift_register::{
     input::{ReadRegister, ShiftRegister},
     *,
 };
+
+use stuff::{Delay10Mhz, Keys};
 
 // Provide an alias for our BSP so we can switch targets quickly.
 // Uncomment the BSP you included in Cargo.toml, the rest of the code does not need to change.
@@ -26,6 +30,7 @@ use bsp::hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
+/*
 pub struct Keyboard<T, ERR>
 where
     ERR: core::fmt::Debug,
@@ -50,14 +55,7 @@ where
         self.reg.read()
     }
 }
-
-struct Delay10Mhz {}
-
-impl CycleDelay for Delay10Mhz {
-    fn delay() {
-        cortex_m::asm::delay(10);
-    }
-}
+*/
 
 #[entry]
 fn main() -> ! {
@@ -96,18 +94,40 @@ fn main() -> ! {
     let k_data = pins.gpio16.into_floating_input();
     let k_latch = pins.gpio14.into_push_pull_output();
     _ = pull_up.set_high();
+    let mut buffer = InputBuffer::<128, Keys>::new();
+    buffer.left = Keys::Q | Keys::Star;
+    buffer.right = Keys::E | Keys::Star;
+    buffer.backspace = Keys::Star | Keys::ShiftR;
+    buffer.validate = Keys::Return;
 
     let mut keyboard: ShiftRegister<_, _, _, u32, Delay10Mhz> =
         input::ShiftRegister::new(k_clk, k_data, k_latch);
-    blink::blink(&mut led_pin, "squee");
+    //blink::blink(&mut led_pin, "squee");
     loop {
-        let _val = 0u64;
-        info!("on! {:x}", keyboard.read());
-        led_pin.set_high().unwrap();
-        delay.delay_ms(500);
-        info!("off! {:X}", keyboard.read());
-        led_pin.set_low().unwrap();
-        delay.delay_ms(500);
+        let key = keyboard.read();
+        match buffer.process_input(key.into()) {
+            InputState::Running(key) => {
+                let key = key.and(Keys::Modifiers);
+                /*if key == Keys::Dollar {
+                    interface.set_overlay(Some(input::LAYOUT_NUM));
+                } else {
+                    interface.set_overlay(None);
+                }*/
+            }
+            InputState::Updated => {
+                //interface.set_input(buffer.get_data(), buffer.get_cursor());
+                info!("{}", buffer);
+            }
+            InputState::Overflow => {
+                info!("Overflow");
+            }
+            InputState::Validated => {
+                info!("SENDING {}", buffer);
+                //interface.set_input(b"", 0);
+                //sending = true;
+            }
+            InputState::NotForMe(_key) => {}
+        }
     }
 }
 
